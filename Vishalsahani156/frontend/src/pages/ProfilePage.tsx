@@ -44,20 +44,11 @@ export const ProfilePage = () => {
 
   const onSubmit = async (data: ProfileForm) => {
     try {
-      const payload: { name?: string; phone?: string; password?: string } = {
+      const updated = await updateProfileApi({
         name: data.name,
         phone: data.phone,
-      };
-      if (data.password) payload.password = data.password;
-
-      const { data: res } = await updateProfileApi(payload);
-      const updated = res.data;
-      updateUser({
-        id: (updated as { _id?: string })._id || user!.id,
-        name: updated.name,
-        email: updated.email,
-        phone: updated.phone,
       });
+      updateUser(updated);
       toast.success('Profile updated successfully!');
     } catch (err: unknown) {
       const message =

@@ -1,12 +1,53 @@
 import api from './axios';
-import { AuthResponse } from '../types';
+import { User } from '../types';
 
-export const registerApi = (data: {
+type RegisterInput = {
   name: string;
   email: string;
   phone: string;
   password: string;
-}) => api.post<{ success: boolean; data: AuthResponse }>('/auth/register', data);
+};
 
-export const loginApi = (data: { email: string; password: string }) =>
-  api.post<{ success: boolean; data: AuthResponse }>('/auth/login', data);
+type BackendUser = {
+  id: string;
+  fullName: string;
+  email: string;
+  phoneNumber: string;
+  createdAt?: string;
+};
+
+type BackendAuthResponse = {
+  token: string;
+  user: BackendUser;
+};
+
+type AuthResult = {
+  user: User;
+  token: string;
+};
+
+const toBackendUser = (user: BackendUser): User => ({
+  id: user.id,
+  name: user.fullName,
+  email: user.email,
+  phone: user.phoneNumber,
+  createdAt: user.createdAt,
+});
+
+export const registerApi = async (data: RegisterInput): Promise<AuthResult> => {
+  const res = await api.post<BackendAuthResponse>('/auth/register', {
+    fullName: data.name.trim(),
+    email: data.email.trim(),
+    phoneNumber: data.phone.trim(),
+    password: data.password,
+  });
+  return { user: toBackendUser(res.data.user), token: res.data.token };
+};
+
+export const loginApi = async (data: { email: string; password: string }): Promise<AuthResult> => {
+  const res = await api.post<BackendAuthResponse>('/auth/login', {
+    email: data.email.trim(),
+    password: data.password,
+  });
+  return { user: toBackendUser(res.data.user), token: res.data.token };
+};

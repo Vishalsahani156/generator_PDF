@@ -63,17 +63,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       try {
-        const { data } = await getProfileApi();
-        const profile = data.data;
-        const normalizedUser: User = {
-          id: (profile as User & { _id?: string })._id || profile.id,
-          name: profile.name,
-          email: profile.email,
-          phone: profile.phone,
-          createdAt: profile.createdAt,
-        };
-        setUser(normalizedUser);
-        localStorage.setItem('user', JSON.stringify(normalizedUser));
+        const profile = await getProfileApi();
+        setUser(profile);
+        localStorage.setItem('user', JSON.stringify(profile));
       } catch {
         logout();
       } finally {
@@ -85,15 +77,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [logout]);
 
   const login = async (email: string, password: string) => {
-    const { data } = await loginApi({ email, password });
-    const { user: authUser, token: authToken } = data.data;
-    const normalizedUser: User = {
-      id: (authUser as User & { _id?: string })._id || authUser.id,
-      name: authUser.name,
-      email: authUser.email,
-      phone: authUser.phone,
-    };
-    persistAuth(normalizedUser, authToken);
+    const { user: authUser, token: authToken } = await loginApi({ email, password });
+    persistAuth(authUser, authToken);
   };
 
   const register = async (registerData: {
@@ -102,15 +87,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     phone: string;
     password: string;
   }) => {
-    const { data } = await registerApi(registerData);
-    const { user: authUser, token: authToken } = data.data;
-    const normalizedUser: User = {
-      id: (authUser as User & { _id?: string })._id || authUser.id,
-      name: authUser.name,
-      email: authUser.email,
-      phone: authUser.phone,
-    };
-    persistAuth(normalizedUser, authToken);
+    const { user: authUser, token: authToken } = await registerApi(registerData);
+    persistAuth(authUser, authToken);
   };
 
   const updateUser = (updatedUser: User) => {
