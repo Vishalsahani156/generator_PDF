@@ -1,0 +1,5 @@
+Stack breakdown:
+
+MongoDB — store clients, invoices, line items
+Express + Node — REST API (auth, CRUD, PDF generation)
+React — dashboard UI, invoice builder form
