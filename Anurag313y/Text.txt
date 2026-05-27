@@ -1,5 +1,7 @@
 Stack breakdown:
 
-MongoDB — store clients, invoices, line items
-Express + Node — REST API (auth, CRUD, PDF generation)
-React — dashboard UI, invoice builder form
+MongoDB — store clients, invoices, line items (Docker in this folder — setup later)
+Express + Node — REST API in ./backend (auth, CRUD, PDF generation)
+React — dashboard UI in ./frontend (invoice builder form)
+
+Project root: Anurag313y/
