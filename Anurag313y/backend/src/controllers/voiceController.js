@@ -12,7 +12,7 @@ const DEFAULT_DEEPGRAM_PARAMS = {
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 const getEnvOrThrow = (name) => {
-  const value = process.env[name];
+  const value = String(process.env[name] || '').trim();
   if (!value) {
     const err = new Error(`${name} is not configured`);
     err.statusCode = 500;
@@ -52,6 +52,15 @@ const safeJsonParse = (text) => {
   }
 };
 
+const extractRetryAfterSeconds = (text) => {
+  if (!text) return null;
+  const m = String(text).match(/retry in\s+(\d+(?:\.\d+)?)s/i);
+  if (!m) return null;
+  const seconds = Number(m[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.ceil(seconds);
+};
+
 const extractFirstJsonObject = (text) => {
   if (!text) return null;
   const start = text.indexOf('{');
@@ -69,6 +78,125 @@ const extractFirstJsonObject = (text) => {
     }
   }
   return null;
+};
+
+const stripPlaceholderValue = (value) => {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  const lowered = v.toLowerCase();
+  if (lowered === 'string') return '';
+  if (lowered.startsWith('string(') && lowered.endsWith(')')) return '';
+  if (lowered === 'undefined' || lowered === 'null' || lowered === 'n/a') return '';
+  return v;
+};
+
+const toDigits = (value) => String(value || '').replace(/\D/g, '');
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const toYmd = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+const parseEventDateToYmd = (raw, { today = new Date() } = {}) => {
+  const s = String(raw || '').trim();
+  if (!s) return { ymd: '', warning: null };
+
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return { ymd: s, warning: null };
+  }
+
+  // Common slash formats: DD/MM/YYYY or MM/DD/YYYY
+  const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (!m) return { ymd: '', warning: 'Could not understand event date from transcript' };
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  const y = Number(m[3]);
+
+  const candidates = [];
+  // Treat as DD/MM/YYYY
+  candidates.push(new Date(`${y}-${pad2(b)}-${pad2(a)}`));
+  // Treat as MM/DD/YYYY
+  candidates.push(new Date(`${y}-${pad2(a)}-${pad2(b)}`));
+
+  const startOfToday = new Date(today);
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const valid = candidates.filter((d) => !Number.isNaN(d.getTime()));
+  const futureOrToday = valid.filter((d) => {
+    const dd = new Date(d);
+    dd.setHours(0, 0, 0, 0);
+    return dd >= startOfToday;
+  });
+
+  if (futureOrToday.length === 1) return { ymd: toYmd(futureOrToday[0]), warning: null };
+  if (futureOrToday.length > 1) {
+    // Choose the earliest future date
+    futureOrToday.sort((x, y2) => x.getTime() - y2.getTime());
+    return { ymd: toYmd(futureOrToday[0]), warning: 'Ambiguous date format; picked the nearest future date' };
+  }
+
+  // No future date possible -> return empty, let UI ask user
+  return { ymd: '', warning: 'Event date seems in the past or ambiguous; please select it manually' };
+};
+
+const heuristicExtractFromTranscript = (transcript) => {
+  const t = String(transcript || '').trim();
+  if (!t) {
+    return {
+      customerName: '',
+      mobileNo: '',
+      eventName: '',
+      eventDate: '',
+      warnings: ['Transcript was empty; cannot extract details'],
+    };
+  }
+
+  const warnings = [];
+
+  // Customer name: "my name is X" or "I am X"
+  let customerName = '';
+  const nameMatch =
+    t.match(/\bmy name is\s+([a-z][a-z\s.'-]{1,60})/i) ||
+    t.match(/\bi am\s+([a-z][a-z\s.'-]{1,60})/i);
+  if (nameMatch?.[1]) {
+    customerName = nameMatch[1].trim().replace(/\s+/g, ' ');
+    // stop at common separators
+    customerName = customerName.split(/\b(and|i want|i'd like|i would|to book|book)\b/i)[0].trim();
+  }
+
+  // Mobile number: capture any 10+ digit sequence and take last 10 digits
+  let mobileNo = '';
+  const digits = toDigits(t);
+  if (digits.length >= 10) {
+    mobileNo = digits.slice(-10);
+  }
+
+  // Event name: "event for/of <something>" or "book <something>"
+  let eventName = '';
+  const eventMatch =
+    t.match(/\bevent\s+(?:for|of)\s+(?:a\s+|an\s+)?([a-z][a-z\s]{1,40})/i) ||
+    t.match(/\bbook\s+(?:an?\s+)?([a-z][a-z\s]{1,40})\s+event/i);
+  if (eventMatch?.[1]) {
+    eventName = eventMatch[1].trim().replace(/\s+/g, ' ');
+    eventName = eventName.split(/\b(on|for)\b/i)[0].trim();
+  }
+
+  // Date: first date-like token found
+  let eventDate = '';
+  const dateToken =
+    t.match(/\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})\b/)?.[1] ||
+    t.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1] ||
+    '';
+  if (dateToken) {
+    const parsed = parseEventDateToYmd(dateToken, { today: new Date() });
+    eventDate = parsed.ymd;
+    if (parsed.warning) warnings.push(parsed.warning);
+  } else {
+    warnings.push('Could not find an event date in transcript');
+  }
+
+  return { customerName, mobileNo, eventName, eventDate, warnings };
 };
 
 export const transcribeVoice = async (req, res) => {
@@ -186,9 +314,15 @@ export const extractEventFields = async (req, res) => {
     };
 
     const prompt = [
-      'You extract event fields from a transcript. Return ONLY valid JSON (no markdown, no explanations).',
+      'You extract event fields from a transcript.',
+      'Return ONLY valid JSON (no markdown, no explanations).',
+      'Do NOT output placeholder words like "string" or schema descriptions as values.',
       'If a field is unknown, return an empty string and add a warning explaining what is missing/ambiguous.',
-      'Prefer interpreting dates into YYYY-MM-DD (ISO date) with year included.',
+      'Mobile must be digits only (no spaces, no +, no hyphens). Prefer Indian 10-digit numbers.',
+      'Dates: output YYYY-MM-DD. If transcript uses 06/01/2026-style dates and it is ambiguous, still output the best guess but include a warning about ambiguity.',
+      '',
+      'Example output:',
+      '{"customerName":"Anurag Yadav","mobileNo":"9876543210","eventName":"Birthday","eventDate":"2026-06-01","warnings":[]}',
       '',
       `JSON schema: ${JSON.stringify(schemaHint)}`,
       '',
@@ -214,6 +348,16 @@ export const extractEventFields = async (req, res) => {
 
     const gmText = await gmRes.text();
     if (!gmRes.ok) {
+      if (gmRes.status === 429) {
+        const retryAfterSeconds = extractRetryAfterSeconds(gmText);
+        return res.status(429).json({
+          success: false,
+          message:
+            'Gemini quota exceeded. Enable billing / increase quota, or wait and retry.',
+          retryAfterSeconds,
+          details: gmText?.slice(0, 1000),
+        });
+      }
       return res.status(502).json({
         success: false,
         message: 'Gemini extraction failed',
@@ -237,19 +381,38 @@ export const extractEventFields = async (req, res) => {
       });
     }
 
+    const dateParsed = parseEventDateToYmd(parsed.eventDate, { today: new Date() });
     const fields = {
-      customerName: String(parsed.customerName || '').trim(),
-      mobileNo: String(parsed.mobileNo || '').trim(),
-      eventName: String(parsed.eventName || '').trim(),
-      eventDate: String(parsed.eventDate || '').trim(),
+      customerName: stripPlaceholderValue(parsed.customerName),
+      mobileNo: toDigits(stripPlaceholderValue(parsed.mobileNo)),
+      eventName: stripPlaceholderValue(parsed.eventName),
+      eventDate: dateParsed.ymd,
     };
 
     const warnings = Array.isArray(parsed.warnings)
       ? parsed.warnings.map((w) => String(w)).filter(Boolean)
       : [];
+    if (dateParsed.warning) warnings.push(dateParsed.warning);
+
+    // Heuristic fallback (Gemini/Gemma can be inconsistent with strict JSON extraction).
+    // Fill only missing fields so model output stays preferred.
+    const heuristic = heuristicExtractFromTranscript(transcript);
+    const mergedFields = {
+      customerName: fields.customerName || heuristic.customerName,
+      mobileNo: fields.mobileNo || heuristic.mobileNo,
+      eventName: fields.eventName || heuristic.eventName,
+      eventDate: fields.eventDate || heuristic.eventDate,
+    };
+    const mergedWarnings = [
+      ...warnings,
+      ...(heuristic.warnings?.length ? heuristic.warnings : []),
+      ...(fields.customerName || fields.mobileNo || fields.eventName || fields.eventDate
+        ? []
+        : ['Used transcript fallback extraction because model returned empty fields']),
+    ];
 
     // Validate using existing server-side rules (also normalizes mobile and date)
-    const validation = validateEventPayload(fields);
+    const validation = validateEventPayload(mergedFields);
     const validationWarnings = Object.values(validation.errors || {});
 
     return res.status(200).json({
@@ -259,9 +422,9 @@ export const extractEventFields = async (req, res) => {
           customerName: validation.normalized.customerName,
           mobileNo: validation.normalized.mobileNo,
           eventName: validation.normalized.eventName,
-          eventDate: fields.eventDate, // keep as YYYY-MM-DD for the form input
+          eventDate: mergedFields.eventDate, // keep as YYYY-MM-DD for the form input
         },
-        warnings: [...warnings, ...validationWarnings],
+        warnings: [...mergedWarnings, ...validationWarnings],
         transcript,
       },
     });

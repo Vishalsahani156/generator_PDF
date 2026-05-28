@@ -1,5 +1,13 @@
-function VoiceReview({ transcript, warnings = [], onApply, isApplying = false }) {
+function VoiceReview({ transcript, warnings = [], fields, onApply, isApplying = false }) {
   if (!transcript) return null;
+
+  const canApply = Boolean(
+    fields &&
+      (fields.customerName?.trim() ||
+        fields.mobileNo?.trim() ||
+        fields.eventName?.trim() ||
+        fields.eventDate?.trim()),
+  );
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -13,7 +21,7 @@ function VoiceReview({ transcript, warnings = [], onApply, isApplying = false })
         <button
           type="button"
           onClick={onApply}
-          disabled={isApplying}
+          disabled={isApplying || !canApply}
           className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isApplying ? 'Applying...' : 'Apply to form'}

@@ -5,7 +5,7 @@ export const generateReferenceNumber = async (userId, Invoice) => {
   return `EVT-${year}-${seq}`;
 };
 
-export const normalizeMobileNo = (mobile) => mobile.replace(/\s+/g, '').trim();
+export const normalizeMobileNo = (mobile) => String(mobile || '').replace(/\D/g, '').trim();
 
 export const getStartOfToday = () => {
   const today = new Date();
