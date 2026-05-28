@@ -15,6 +15,7 @@ import { Modal } from '../components/ui/Modal';
 import { EventForm } from '../components/EventForm';
 import { EventList } from '../components/EventList';
 import { DownloadRangeForm } from '../components/DownloadRangeForm';
+import { VoiceEventModal } from '../components/VoiceEventModal';
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   return (
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   const eventsQuery = useQuery<EventItem[]>({
     queryKey: ['events'],
@@ -100,6 +102,9 @@ export default function Dashboard() {
             >
               Download PDF
             </Button>
+            <Button variant="secondary" onClick={() => setVoiceOpen(true)}>
+              Add by voice
+            </Button>
             <Button
               onClick={() => {
                 setFormError(null);
@@ -161,6 +166,8 @@ export default function Dashboard() {
           error={downloadError}
         />
       </Modal>
+
+      <VoiceEventModal open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </AppShell>
   );
 }

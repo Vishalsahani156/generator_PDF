@@ -89,6 +89,33 @@ export interface PdfRange {
   to?: string;
 }
 
+export interface ParsedEvent {
+  name: string;
+  datetime: string;
+  number: number;
+  location: string;
+}
+
+export async function voiceExtract(audio: Blob): Promise<{
+  transcript: string;
+  events: ParsedEvent[];
+}> {
+  const form = new FormData();
+  const ext = audio.type.includes('webm') ? 'webm' : audio.type.includes('wav') ? 'wav' : 'audio';
+  form.append('audio', audio, `recording.${ext}`);
+  const { data } = await api.post<{ transcript: string; events: ParsedEvent[] }>(
+    '/events/voice',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return data;
+}
+
+export async function bulkCreateEvents(events: EventInput[]): Promise<EventItem[]> {
+  const { data } = await api.post<{ events: EventItem[] }>('/events/bulk', { events });
+  return data.events;
+}
+
 export async function downloadEventsPdf(range?: PdfRange): Promise<void> {
   const params: Record<string, string> = {};
   if (range?.from) params.from = range.from;
