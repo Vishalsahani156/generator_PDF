@@ -1,19 +1,20 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { login } from '../lib/api';
+import { register } from '../lib/api';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
-export default function Login() {
+export default function Register() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () => login(email, password),
+    mutationFn: () => register(email, password, name),
     onSuccess: (user) => {
       queryClient.clear();
       queryClient.setQueryData(['auth', 'me'], user);
@@ -22,7 +23,7 @@ export default function Login() {
     onError: (err: unknown) => {
       const message =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        'Login failed';
+        'Registration failed';
       setError(message);
     },
   });
@@ -30,6 +31,10 @@ export default function Login() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
     mutation.mutate();
   }
 
@@ -40,10 +45,19 @@ export default function Login() {
           <span className="inline-block h-6 w-6 rounded-lg bg-blue-600" aria-hidden />
           <span className="text-base font-semibold">Aperture</span>
         </div>
-        <h1 className="text-2xl font-semibold text-ink">Welcome back</h1>
-        <p className="mt-2 text-sm text-blue-600">Sign in to continue.</p>
+        <h1 className="text-2xl font-semibold text-ink">Create your account</h1>
+        <p className="mt-2 text-sm text-blue-600">It only takes a minute.</p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-ink">Name</label>
+            <Input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ada Lovelace"
+            />
+          </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-ink">Email</label>
             <Input
@@ -60,8 +74,9 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="At least 6 characters"
               required
+              minLength={6}
             />
           </div>
           {error && (
@@ -73,17 +88,17 @@ export default function Login() {
             </div>
           )}
           <Button type="submit" disabled={mutation.isPending} className="w-full">
-            {mutation.isPending ? 'Signing in…' : 'Sign in'}
+            {mutation.isPending ? 'Creating…' : 'Create account'}
           </Button>
         </form>
 
         <p className="mt-6 text-center text-sm text-blue-600">
-          New here?{' '}
+          Already have an account?{' '}
           <Link
-            to="/register/auth"
+            to="/login/auth"
             className="font-medium text-blue-600 underline-offset-2 hover:underline"
           >
-            Create an account
+            Sign in
           </Link>
         </p>
       </div>
