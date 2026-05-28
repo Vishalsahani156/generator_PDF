@@ -24,9 +24,9 @@ export const createEvent = catchAsync(async (req: Request, res: Response) => {
   const record = await PdfRecord.create({
     userId,
     // map event -> current schema fields
-    name: body.name,
-    email: body.email,
-    phone: body.phoneNumber,
+    name: "",
+    email: "",
+    phone: "",
     eventDate,
     sheetCategory: body.eventCategory,
     description: body.description,
@@ -99,9 +99,7 @@ export const updateEvent = catchAsync(async (req: Request, res: Response) => {
   const record = await PdfRecord.findOne({ _id: params.id, userId });
   if (!record) throw new AppError("Event not found", 404);
 
-  record.name = body.name;
-  record.email = body.email;
-  record.phone = body.phoneNumber;
+  // Create Event no longer includes name/email/phone. Preserve existing stored values.
   record.eventDate = eventDate;
   record.sheetCategory = body.eventCategory;
   record.description = body.description;

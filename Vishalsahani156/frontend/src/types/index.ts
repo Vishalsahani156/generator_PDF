@@ -13,9 +13,9 @@ export interface AuthResponse {
 
 export interface PdfFormData {
   eventName: string;
-  name: string;
-  email: string;
-  phone: string;
+  name?: string;
+  email?: string;
+  phone?: string;
   eventDate: string;
   sheetCategory: string;
   description: string;

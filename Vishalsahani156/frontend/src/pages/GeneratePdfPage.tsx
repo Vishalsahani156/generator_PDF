@@ -18,9 +18,6 @@ import { speak, stopSpeaking } from '../services/voice/speechSynthesis';
 
 const pdfFormSchema = z.object({
   eventName: z.string().min(2, 'Event name is required'),
-  name: z.string().min(2, 'Name is required'),
-  email: z.string().email('Invalid email'),
-  phone: z.string().min(10, 'Phone is required'),
   eventDate: z.string().min(1, 'Event date is required'),
   sheetCategory: z.string().min(1, 'Please select a category'),
   description: z.string().min(1, 'Description is required'),
@@ -87,6 +84,8 @@ export const GeneratePdfPage = () => {
       const extracted = result?.data?.extracted || {};
       const keys = Object.keys(extracted) as Array<keyof PdfFormData>;
       for (const k of keys) {
+        // Create Event no longer uses these fields.
+        if (k === 'name' || k === 'email' || k === 'phone') continue;
         const v = extracted[k];
         if (typeof v === 'string' && v.trim()) {
           setValue(k, v, { shouldValidate: true, shouldDirty: true });
@@ -136,7 +135,7 @@ export const GeneratePdfPage = () => {
       return;
     }
     const data = getValues();
-    const filename = `${data.sheetCategory}-${data.name}-${Date.now()}.pdf`.replace(/\s+/g, '-');
+    const filename = `${data.sheetCategory}-${data.eventName}-${Date.now()}.pdf`.replace(/\s+/g, '-');
     downloadPdf(pdfBytes, filename);
     toast.success('PDF downloaded!');
   };
@@ -213,14 +212,6 @@ export const GeneratePdfPage = () => {
           ) : null}
 
           <InputField label="Event Name" {...register('eventName')} error={errors.eventName?.message} />
-          <InputField label="Name" {...register('name')} error={errors.name?.message} />
-          <InputField
-            label="Email"
-            type="email"
-            {...register('email')}
-            error={errors.email?.message}
-          />
-          <InputField label="Phone Number" {...register('phone')} error={errors.phone?.message} />
           <InputField
             label="Event Date"
             type="date"

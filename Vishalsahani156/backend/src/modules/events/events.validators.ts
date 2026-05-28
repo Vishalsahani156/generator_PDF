@@ -7,10 +7,7 @@ export const eventInputSchema = z.object({
     .min(1)
     .refine((s) => !Number.isNaN(Date.parse(s)), "Invalid event date"),
   eventCategory: z.string().min(2).max(60).trim(),
-  description: z.string().min(1).max(4000).trim(),
-  name: z.string().min(2).max(120).trim(),
-  email: z.string().email().trim(),
-  phoneNumber: z.string().min(7).max(20).trim()
+  description: z.string().min(1).max(4000).trim()
 });
 
 export const eventIdParamSchema = z.object({
