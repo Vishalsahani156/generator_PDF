@@ -17,7 +17,7 @@ import { createAudioRecorder } from '../services/voice/audioRecorder';
 import { speak, stopSpeaking } from '../services/voice/speechSynthesis';
 
 const pdfFormSchema = z.object({
-  eventName: z.string().min(2, 'Event name is required'),
+  eventName: z.string().min(2, 'Please enter a short name'),
   eventDate: z.string().min(1, 'Event date is required'),
   sheetCategory: z.string().min(1, 'Please select a category'),
   description: z.string().min(1, 'Description is required'),
@@ -32,6 +32,12 @@ export const GeneratePdfPage = () => {
   const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [finalTranscript, setFinalTranscript] = useState<string>('');
   const [recorder] = useState(() => createAudioRecorder());
+
+  const revokePreviewUrl = (url: string | null) => {
+    if (!url) return;
+    // We only create blob URLs for preview; guard against accidental non-blob values.
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+  };
 
   const {
     register,
@@ -160,7 +166,7 @@ export const GeneratePdfPage = () => {
     try {
       const bytes = await generatePdfBytes(data);
       setPdfBytes(bytes);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      revokePreviewUrl(previewUrl);
       setPreviewUrl(pdfToDataUrl(bytes));
       toast.success('PDF generated successfully!');
       return bytes;
@@ -179,7 +185,7 @@ export const GeneratePdfPage = () => {
   const onPreview = handleSubmit(async (data) => {
     const bytes = pdfBytes ?? (await buildPdf(data));
     if (bytes) {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      revokePreviewUrl(previewUrl);
       setPreviewUrl(pdfToDataUrl(bytes));
     }
   });
@@ -214,7 +220,7 @@ export const GeneratePdfPage = () => {
   });
 
   const closePreview = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    revokePreviewUrl(previewUrl);
     setPreviewUrl(null);
   };
 
