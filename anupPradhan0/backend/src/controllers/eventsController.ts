@@ -2,6 +2,49 @@ import { Request, Response } from 'express';
 import { Event } from '../models/Event';
 import { User } from '../models/User';
 import { buildEventsPdf } from '../lib/pdf';
+import {
+  extractEvents,
+  NoSpeechError,
+  transcribeAudio,
+  VoiceConfigError,
+  VoiceUpstreamError,
+} from '../lib/voiceExtract';
+
+interface NormalizedEventInput {
+  name: string;
+  datetime: Date;
+  number: number;
+  location: string;
+}
+
+function validateEventInput(raw: unknown): NormalizedEventInput | { error: string } {
+  if (!raw || typeof raw !== 'object') return { error: 'event payload required' };
+  const o = raw as Record<string, unknown>;
+
+  if (
+    typeof o.name !== 'string' ||
+    typeof o.location !== 'string' ||
+    !o.datetime ||
+    o.number === undefined ||
+    o.number === null
+  ) {
+    return { error: 'name, datetime, number, and location are required' };
+  }
+
+  const trimmedName = o.name.trim();
+  const trimmedLocation = o.location.trim();
+  if (!trimmedName || !trimmedLocation) {
+    return { error: 'name and location must not be blank' };
+  }
+
+  const when = new Date(o.datetime as string | number);
+  if (isNaN(when.getTime())) return { error: 'datetime is invalid' };
+
+  const num = Number(o.number);
+  if (!Number.isFinite(num)) return { error: 'number must be numeric' };
+
+  return { name: trimmedName, datetime: when, number: num, location: trimmedLocation };
+}
 
 function toEventApi(e: { _id: unknown; name: string; datetime: Date; number: number; location: string }) {
   return {
@@ -19,47 +62,78 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
 }
 
 export async function createEvent(req: Request, res: Response): Promise<void> {
-  const { name, datetime, number, location } = req.body ?? {};
-
-  if (
-    typeof name !== 'string' ||
-    typeof location !== 'string' ||
-    !datetime ||
-    number === undefined ||
-    number === null
-  ) {
-    res.status(400).json({ error: 'name, datetime, number, and location are required' });
-    return;
-  }
-
-  const trimmedName = name.trim();
-  const trimmedLocation = location.trim();
-  if (!trimmedName || !trimmedLocation) {
-    res.status(400).json({ error: 'name and location must not be blank' });
-    return;
-  }
-
-  const when = new Date(datetime);
-  if (isNaN(when.getTime())) {
-    res.status(400).json({ error: 'datetime is invalid' });
-    return;
-  }
-
-  const num = Number(number);
-  if (!Number.isFinite(num)) {
-    res.status(400).json({ error: 'number must be numeric' });
+  const result = validateEventInput(req.body);
+  if ('error' in result) {
+    res.status(400).json({ error: result.error });
     return;
   }
 
   const event = await Event.create({
     user: req.auth!.sub,
-    name: trimmedName,
-    datetime: when,
-    number: num,
-    location: trimmedLocation,
+    ...result,
   });
 
   res.status(201).json({ event: toEventApi(event) });
+}
+
+export async function bulkCreateEvents(req: Request, res: Response): Promise<void> {
+  const body = req.body as { events?: unknown };
+  if (!body || !Array.isArray(body.events)) {
+    res.status(400).json({ error: 'events array is required' });
+    return;
+  }
+  if (body.events.length === 0) {
+    res.json({ events: [] });
+    return;
+  }
+  if (body.events.length > 50) {
+    res.status(400).json({ error: 'at most 50 events per request' });
+    return;
+  }
+
+  const validated: NormalizedEventInput[] = [];
+  for (let i = 0; i < body.events.length; i++) {
+    const result = validateEventInput(body.events[i]);
+    if ('error' in result) {
+      res.status(400).json({ error: `events[${i}]: ${result.error}` });
+      return;
+    }
+    validated.push(result);
+  }
+
+  const docs = await Event.insertMany(
+    validated.map((v) => ({ user: req.auth!.sub, ...v }))
+  );
+
+  res.status(201).json({ events: docs.map(toEventApi) });
+}
+
+export async function voiceExtract(req: Request, res: Response): Promise<void> {
+  const file = (req as Request & { file?: Express.Multer.File }).file;
+  if (!file) {
+    res.status(400).json({ error: 'audio file is required (multipart field "audio")' });
+    return;
+  }
+
+  try {
+    const transcript = await transcribeAudio(file.buffer, file.mimetype);
+    const events = await extractEvents(transcript, new Date());
+    res.json({ transcript, events });
+  } catch (err) {
+    if (err instanceof VoiceConfigError) {
+      res.status(501).json({ error: 'Voice features are not configured on this server' });
+      return;
+    }
+    if (err instanceof NoSpeechError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    if (err instanceof VoiceUpstreamError) {
+      res.status(502).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function deleteEvent(req: Request, res: Response): Promise<void> {

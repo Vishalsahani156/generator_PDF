@@ -13,4 +13,6 @@ export const env = {
   mongoUri: required('MONGO_URI', 'mongodb://localhost:27017/appdb'),
   jwtSecret: required('JWT_SECRET'),
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  deepgramApiKey: process.env.DEEPGRAM_API_KEY || undefined,
+  geminiApiKey: process.env.GEMINI_API_KEY || undefined,
 };

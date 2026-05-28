@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import mongoose from 'mongoose';
+import multer from 'multer';
 
 export type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
 
@@ -42,6 +43,15 @@ export function errorHandler(
 
   if (err instanceof SyntaxError) {
     res.status(400).json({ error: 'Invalid JSON body' });
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    const msg =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'Audio file too large (max 10 MB)'
+        : `Upload error: ${err.message}`;
+    res.status(400).json({ error: msg });
     return;
   }
 
