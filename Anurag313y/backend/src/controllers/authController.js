@@ -2,8 +2,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
-const generateToken = (userId) =>
-  jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+const generateToken = (payload) =>
+  jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: '7d',
   });
 
@@ -51,7 +51,7 @@ export const register = async (req, res) => {
           name: user.name,
           email: user.email,
         },
-        token: generateToken(user._id),
+        token: generateToken({ id: user._id, role: user.role }),
       },
     });
   } catch (error) {
@@ -82,6 +82,20 @@ export const login = async (req, res) => {
       });
     }
 
+    if (user.role === 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Use the admin login to access the admin panel',
+      });
+    }
+
+    if (user.isDisabled) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account disabled. Contact support.',
+      });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({
@@ -99,7 +113,7 @@ export const login = async (req, res) => {
           name: user.name,
           email: user.email,
         },
-        token: generateToken(user._id),
+        token: generateToken({ id: user._id, role: user.role }),
       },
     });
   } catch (error) {

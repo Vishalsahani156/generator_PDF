@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
-const protect = async (req, res, next) => {
+const adminProtect = async (req, res, next) => {
   try {
     let token;
 
@@ -33,14 +33,14 @@ const protect = async (req, res, next) => {
       });
     }
 
-    if (user.role === 'admin') {
+    if (user.role !== 'admin') {
       return res.status(403).json({
         success: false,
-        message: 'Admins cannot access the user panel',
+        message: 'Admin access required',
       });
     }
 
-    req.user = { id: user._id };
+    req.admin = { id: user._id };
     next();
   } catch (error) {
     return res.status(401).json({
@@ -50,4 +50,5 @@ const protect = async (req, res, next) => {
   }
 };
 
-export default protect;
+export default adminProtect;
+

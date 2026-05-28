@@ -49,6 +49,11 @@ services:
       MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/invoice_generator}
       JWT_SECRET: ${JWT_SECRET:-change_this_jwt_secret_in_production}
       CLIENT_URL: ${CLIENT_URL:-http://localhost:${APP_PORT:-3000}}
+      # Admin bootstrap (optional): creates/updates an admin user on startup
+      ADMIN_BOOTSTRAP: ${ADMIN_BOOTSTRAP:-false}
+      ADMIN_NAME: ${ADMIN_NAME:-Admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@gmail.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin@123}
     networks:
       - internal
     healthcheck:

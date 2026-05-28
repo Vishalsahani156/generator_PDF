@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCurrentUserQuery } from '../hooks/useAuthQueries';
 import { queryKeys } from '../constants/queryKeys';
@@ -12,11 +13,7 @@ export function AuthProvider({ children }) {
 
   const { data: meData, isLoading: isLoadingUser } = useCurrentUserQuery(Boolean(token));
 
-  useEffect(() => {
-    if (meData?.success && meData?.data?.user) {
-      setUser(meData.data.user);
-    }
-  }, [meData]);
+  const resolvedUser = user ?? (meData?.success ? meData?.data?.user : null);
 
   const login = useCallback(
     (nextToken, nextUser = null) => {
@@ -42,7 +39,7 @@ export function AuthProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      user,
+      user: resolvedUser,
       token,
       isAuthenticated: Boolean(token),
       isLoadingUser,
@@ -50,7 +47,7 @@ export function AuthProvider({ children }) {
       logout,
       setUser,
     }),
-    [user, token, isLoadingUser, login, logout],
+    [resolvedUser, token, isLoadingUser, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
