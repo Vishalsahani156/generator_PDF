@@ -1,6 +1,8 @@
 import { createClient } from '@deepgram/sdk';
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '../config/env';
+
+const GEMMA_MODEL = 'gemma-4-26b-a4b-it';
 
 export interface ParsedEvent {
   name: string;
@@ -65,32 +67,71 @@ export async function transcribeAudio(buffer: Buffer, mimetype: string): Promise
   }
 }
 
-const eventResponseSchema = {
-  type: SchemaType.OBJECT,
-  properties: {
-    events: {
-      type: SchemaType.ARRAY,
-      items: {
-        type: SchemaType.OBJECT,
-        properties: {
-          name: { type: SchemaType.STRING, description: 'Short event title' },
-          datetime: {
-            type: SchemaType.STRING,
-            description: 'ISO 8601 datetime in the user’s local time, e.g. 2026-06-15T14:30:00',
-          },
-          number: {
-            type: SchemaType.NUMBER,
-            description:
-              'Any numeric value associated with the event (e.g. attendee count, room number).',
-          },
-          location: { type: SchemaType.STRING, description: 'Where the event happens' },
-        },
-        required: ['name', 'datetime', 'number', 'location'],
-      },
-    },
-  },
-  required: ['events'],
-} as const;
+function tryParseArray(s: string): unknown[] | null {
+  try {
+    const v = JSON.parse(s);
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === 'object') {
+      const inner = (v as { events?: unknown }).events;
+      if (Array.isArray(inner)) return inner;
+    }
+  } catch {
+    /* not parseable */
+  }
+  return null;
+}
+
+function extractJsonArray(raw: string): unknown[] | null {
+  // Strip ``` or ```json fences if present
+  let cleaned = raw.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  }
+
+  const whole = tryParseArray(cleaned);
+  if (whole) return whole;
+
+  // Scan for balanced top-level [...] arrays, return the last one that parses.
+  // Respects string boundaries and escapes so brackets inside quoted strings
+  // don't throw off the depth counter.
+  let lastValid: unknown[] | null = null;
+  let depth = 0;
+  let arrStart = -1;
+  let inString = false;
+  let escaping = false;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (ch === '\\') {
+        escaping = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '[') {
+      if (depth === 0) arrStart = i;
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      if (depth === 0 && arrStart >= 0) {
+        const parsed = tryParseArray(cleaned.slice(arrStart, i + 1));
+        if (parsed) lastValid = parsed;
+        arrStart = -1;
+      } else if (depth < 0) {
+        depth = 0;
+      }
+    }
+  }
+  return lastValid;
+}
 
 export async function extractEvents(transcript: string, now: Date): Promise<ParsedEvent[]> {
   if (!env.geminiApiKey) {
@@ -99,24 +140,27 @@ export async function extractEvents(transcript: string, now: Date): Promise<Pars
 
   const genAI = new GoogleGenerativeAI(env.geminiApiKey);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: GEMMA_MODEL,
     generationConfig: {
-      responseMimeType: 'application/json',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      responseSchema: eventResponseSchema as any,
       temperature: 0.1,
     },
   });
 
-  const prompt = `Extract one or more events from this transcript. The current date and time is ${now.toISOString()} (use this to resolve relative dates like "tomorrow", "next Friday", "this evening").
+  const prompt = `You are a structured-data extractor. From the transcript below, extract every event the speaker mentions and return ONLY a JSON array — no prose, no markdown fences.
 
-For each event, return:
-- name: the short title (e.g. "Quarterly review")
-- datetime: ISO 8601 datetime
-- number: the numeric value the speaker mentioned (attendee count, room number, phone digits, etc). If the speaker did not mention a number, use 0.
-- location: where it happens. If not mentioned, use "TBD".
+The current date and time is ${now.toISOString()}. Use it to resolve relative phrases like "tomorrow", "next Friday", or "this evening".
 
-A single transcript may describe multiple events. Always return an array, even if there is only one event. Do not invent events that are not mentioned.
+Each array element must be an object with exactly these keys:
+- "name": short event title as a string (e.g. "Quarterly review")
+- "datetime": ISO 8601 datetime string (e.g. "2026-06-15T14:30:00")
+- "number": a numeric value the speaker associated with the event (attendee count, room number, phone digits, etc). If none was mentioned, use 0.
+- "location": where the event happens as a string. If not mentioned, use "TBD".
+
+If the speaker mentions multiple events, return one element per event. If there are none, return [].
+
+Output rules:
+- Output MUST start with "[" and end with "]".
+- No prose, no markdown, no \`\`\`json fences, no explanation.
 
 Transcript:
 """
@@ -129,21 +173,17 @@ ${transcript}
     raw = result.response.text();
   } catch (err) {
     throw new VoiceUpstreamError(
-      `Gemini request failed: ${err instanceof Error ? err.message : String(err)}`
+      `Gemma request failed: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
-  let parsed: { events?: unknown };
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new VoiceUpstreamError('Gemini returned non-JSON output');
+  const arr = extractJsonArray(raw);
+  if (!arr) {
+    throw new VoiceUpstreamError('Model did not return a JSON array');
   }
 
-  if (!parsed || !Array.isArray(parsed.events)) return [];
-
   const events: ParsedEvent[] = [];
-  for (const candidate of parsed.events) {
+  for (const candidate of arr) {
     if (!candidate || typeof candidate !== 'object') continue;
     const c = candidate as Record<string, unknown>;
 
