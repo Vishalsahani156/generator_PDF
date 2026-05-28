@@ -61,10 +61,24 @@ function InvoiceForm() {
   const applyVoiceFields = () => {
     if (!voiceState.fields) return;
     const f = voiceState.fields;
-    if (f.customerName) updateField('customerName', f.customerName);
-    if (f.mobileNo) updateField('mobileNo', f.mobileNo);
-    if (f.eventName) updateField('eventName', f.eventName);
-    if (f.eventDate) updateField('eventDate', f.eventDate);
+    const nextForm = {
+      ...form,
+      customerName: f.customerName?.trim() ? f.customerName : form.customerName,
+      mobileNo: f.mobileNo?.trim() ? f.mobileNo : form.mobileNo,
+      eventName: f.eventName?.trim() ? f.eventName : form.eventName,
+      eventDate: f.eventDate?.trim() ? f.eventDate : form.eventDate,
+    };
+
+    setForm(nextForm);
+    setTouched((prev) => ({
+      ...prev,
+      ...(f.customerName?.trim() ? { customerName: true } : null),
+      ...(f.mobileNo?.trim() ? { mobileNo: true } : null),
+      ...(f.eventName?.trim() ? { eventName: true } : null),
+      ...(f.eventDate?.trim() ? { eventDate: true } : null),
+    }));
+    setErrors(validateEventForm(nextForm).errors);
+    createMutation.reset();
   };
 
   const handleRecorded = async (blob) => {
@@ -115,12 +129,16 @@ function InvoiceForm() {
         error: '',
       });
     } catch (e) {
+      const retryAfter = e?.response?.data?.retryAfterSeconds;
       setVoiceState({
         status: 'error',
         transcript: '',
         warnings: [],
         fields: null,
-        error: e?.response?.data?.message || 'Voice processing failed. Please try again.',
+        error:
+          retryAfter
+            ? `${e?.response?.data?.message || 'Gemini quota exceeded.'} Retry in ~${retryAfter}s.`
+            : e?.response?.data?.message || 'Voice processing failed. Please try again.',
       });
     }
   };
@@ -198,6 +216,7 @@ function InvoiceForm() {
         <VoiceReview
           transcript={voiceState.transcript}
           warnings={voiceState.warnings}
+          fields={voiceState.fields}
           onApply={applyVoiceFields}
           isApplying={false}
         />

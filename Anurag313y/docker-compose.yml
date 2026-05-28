@@ -21,9 +21,9 @@ services:
           'mongosh --quiet --eval "db.adminCommand(''ping'').ok" || exit 1',
         ]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 25s
+      start_period: 40s
     logging: &default-logging
       driver: json-file
       options:
@@ -36,10 +36,9 @@ services:
       dockerfile: Dockerfile
     container_name: event-dashboard-api
     restart: unless-stopped
-    init: true
     env_file:
+      # Source of truth for secrets (do not commit real keys)
       - .env
-      - .env.docker.example
     depends_on:
       mongo:
         condition: service_healthy
@@ -54,6 +53,10 @@ services:
       ADMIN_NAME: ${ADMIN_NAME:-Admin}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@gmail.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin@123}
+      # Voice features
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
     networks:
       - internal
     healthcheck:
