@@ -87,11 +87,17 @@ export const GeneratePdfPage = () => {
         const lines: string[] = [];
         if (e.time) lines.push(`Time: ${e.time}`);
         if (e.location) lines.push(`Location: ${e.location}`);
+        if (e.notes) lines.push(e.notes);
         const existing = getValues('description') || '';
         const extra = lines.join('\n').trim();
         if (extra && !existing.includes(extra)) {
           setValue('description', existing ? `${existing}\n${extra}` : extra, { shouldValidate: true, shouldDirty: true });
         }
+      }
+
+      const suggested = result?.data?.suggested;
+      if (suggested?.description && !getValues('description')?.trim()) {
+        setValue('description', suggested.description, { shouldValidate: true, shouldDirty: true });
       }
 
       toast.success('Event details filled from audio');

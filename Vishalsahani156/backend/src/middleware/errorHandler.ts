@@ -37,9 +37,14 @@ export function errorHandler(
     });
   }
 
-  // Avoid leaking stack traces to clients.
+  // Log unexpected errors server-side (check: docker-compose logs -f backend).
+  // eslint-disable-next-line no-console
+  console.error("[errorHandler] Unhandled error:", err);
+
+  // Avoid leaking stack traces to clients in production.
+  const isDev = process.env.NODE_ENV !== "production";
   return res.status(500).json({
-    message: "Internal server error"
+    message: isDev && err instanceof Error ? err.message : "Internal server error"
   });
 }
 
