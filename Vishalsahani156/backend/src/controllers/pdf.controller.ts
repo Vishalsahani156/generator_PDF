@@ -13,8 +13,10 @@ import {
   allowedCategoriesFilter,
   assertAllowedCategoryFilter,
   assertRecordHasAllowedCategory,
-  categoryNotFoundError
+  categoryNotFoundError,
+  recordNotFoundError
 } from "../utils/sheetCategory";
+import { escapeRegex } from "../utils/escapeRegex";
 import type { PdfInput } from "../services/pdf.service";
 import { pdfIdParamSchema, pdfInputSchema } from "../validators/pdf.validators";
 
@@ -116,7 +118,7 @@ export const listRecords = catchAsync(async (req: Request, res: Response) => {
     filter.sheetCategory = matchAllowedSheetCategory(category)!;
   }
   if (q) {
-    const regex = new RegExp(q, "i");
+    const regex = new RegExp(escapeRegex(q), "i");
     filter.name = regex as any;
     // We'll handle multi-field search using $or.
     delete (filter as any).name;
@@ -137,10 +139,6 @@ export const listRecords = catchAsync(async (req: Request, res: Response) => {
     PdfRecord.countDocuments(filter)
   ]);
 
-  if (category && total === 0) {
-    throw categoryNotFoundError();
-  }
-
   return res.json({
     success: true,
     data: items,
@@ -156,7 +154,7 @@ export const getRecordById = catchAsync(async (req: Request, res: Response) => {
   const id = params.id;
 
   const record = await PdfRecord.findOne({ _id: id, userId });
-  if (!record) throw categoryNotFoundError();
+  if (!record) throw recordNotFoundError();
   assertRecordHasAllowedCategory(record.sheetCategory);
 
   return res.json({ success: true, data: record });
@@ -169,10 +167,10 @@ export const getDashboard = catchAsync(async (req: Request, res: Response) => {
   const userObjectId = new mongoose.Types.ObjectId(userId);
 
   const [total, recent, categories] = await Promise.all([
-    PdfRecord.countDocuments({ userId }),
-    PdfRecord.find({ userId }).sort({ createdAt: -1 }).limit(5),
+    PdfRecord.countDocuments({ userId, ...allowedCategoriesFilter() }),
+    PdfRecord.find({ userId, ...allowedCategoriesFilter() }).sort({ createdAt: -1 }).limit(5),
     PdfRecord.aggregate<{ _id: string; count: number }>([
-      { $match: { userId: userObjectId } },
+      { $match: { userId: userObjectId, ...allowedCategoriesFilter() } },
       { $group: { _id: "$sheetCategory", count: { $sum: 1 } } },
       { $sort: { count: -1 } }
     ])
@@ -200,7 +198,7 @@ export const updateRecord = catchAsync(async (req: Request, res: Response) => {
   if (Number.isNaN(eventDate.getTime())) throw new AppError("Invalid event date");
 
   const record = await PdfRecord.findOne({ _id: id, userId });
-  if (!record) throw categoryNotFoundError();
+  if (!record) throw recordNotFoundError();
   assertRecordHasAllowedCategory(record.sheetCategory);
 
   // Regenerate PDF and overwrite file.
@@ -265,7 +263,7 @@ export const downloadById = catchAsync(async (req: Request, res: Response) => {
   const id = params.id;
 
   const record = await PdfRecord.findOne({ _id: id, userId });
-  if (!record) throw categoryNotFoundError();
+  if (!record) throw recordNotFoundError();
   assertRecordHasAllowedCategory(record.sheetCategory);
 
   let fileBytes: Buffer;

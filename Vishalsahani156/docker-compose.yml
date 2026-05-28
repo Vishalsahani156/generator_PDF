@@ -42,7 +42,7 @@ services:
       MONGODB_URI: mongodb://mongo:27017/pdf_generator
       JWT_SECRET: ${JWT_SECRET:-change-me-please-use-a-long-secret}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://127.0.0.1:5173}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:5000}
       UPLOAD_DIR: uploads
     healthcheck:

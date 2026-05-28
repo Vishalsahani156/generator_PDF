@@ -10,8 +10,10 @@ import {
   allowedCategoriesFilter,
   assertAllowedCategoryFilter,
   assertRecordHasAllowedCategory,
-  categoryNotFoundError
+  categoryNotFoundError,
+  recordNotFoundError
 } from "../../utils/sheetCategory";
+import { escapeRegex } from "../../utils/escapeRegex";
 import { eventIdParamSchema, eventInputSchema, eventsListQuerySchema } from "./events.validators";
 
 /**
@@ -64,7 +66,7 @@ export const listEvents = catchAsync(async (req: Request, res: Response) => {
     filter.sheetCategory = matchAllowedSheetCategory(category)!;
   }
   if (q) {
-    const regex = new RegExp(q, "i");
+    const regex = new RegExp(escapeRegex(q), "i");
     (filter as any).$or = [
       { name: regex },
       { email: regex },
@@ -79,10 +81,6 @@ export const listEvents = catchAsync(async (req: Request, res: Response) => {
     PdfRecord.countDocuments(filter)
   ]);
 
-  if (category && total === 0) {
-    throw categoryNotFoundError();
-  }
-
   return res.json({
     success: true,
     data: items,
@@ -96,7 +94,7 @@ export const getEventById = catchAsync(async (req: Request, res: Response) => {
 
   const params = eventIdParamSchema.parse(req.params);
   const record = await PdfRecord.findOne({ _id: params.id, userId });
-  if (!record) throw categoryNotFoundError();
+  if (!record) throw recordNotFoundError();
   assertRecordHasAllowedCategory(record.sheetCategory);
 
   return res.json({ success: true, data: record });
@@ -166,7 +164,7 @@ export const downloadSingleEventPdf = catchAsync(async (req: Request, res: Respo
 
   const params = eventIdParamSchema.parse(req.params);
   const record = await PdfRecord.findOne({ _id: params.id, userId });
-  if (!record) throw categoryNotFoundError();
+  if (!record) throw recordNotFoundError();
   assertRecordHasAllowedCategory(record.sheetCategory);
 
   let bytes: Uint8Array;

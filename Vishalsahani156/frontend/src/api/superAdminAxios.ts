@@ -5,6 +5,10 @@ function getDefaultApiBaseUrl() {
   if (explicit) return explicit;
 
   if (typeof window !== 'undefined') {
+    const { port } = window.location;
+    if (import.meta.env.DEV || port === '5173') {
+      return '/api';
+    }
     const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1') {
       return `${window.location.protocol}//${host}:5000/api`;

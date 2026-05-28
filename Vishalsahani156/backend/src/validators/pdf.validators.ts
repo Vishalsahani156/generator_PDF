@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sheetCategorySchema } from "../utils/sheetCategory";
+import { objectIdParamSchema } from "./common.validators";
 
 export const pdfInputSchema = z.object({
   eventName: z.string().min(2).max(160).trim(),
@@ -20,7 +21,5 @@ export const pdfInputSchema = z.object({
   description: z.string().min(1).max(4000).trim()
 });
 
-export const pdfIdParamSchema = z.object({
-  id: z.string().min(1)
-});
+export const pdfIdParamSchema = objectIdParamSchema;
 

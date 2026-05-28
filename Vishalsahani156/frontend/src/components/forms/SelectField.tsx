@@ -19,7 +19,6 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
         } ${className}`}
         {...props}
       >
-        <option value="">Select category</option>
         {options.map((opt) => (
           <option key={opt} value={opt}>
             {opt}

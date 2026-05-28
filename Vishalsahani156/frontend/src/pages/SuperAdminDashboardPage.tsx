@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { DashboardLayout } from '../components/layout/DashboardLayout';
+import { SuperAdminLayout } from '../components/layout/SuperAdminLayout';
 import { Button } from '../components/common/Button';
 import { Loader } from '../components/common/Loader';
 import { adminDeleteUserApi, adminListUsersApi, adminUpdateUserApi, AdminUser } from '../api/superAdmin.api';
@@ -91,14 +91,14 @@ export const SuperAdminDashboardPage = () => {
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <SuperAdminLayout>
         <Loader />
-      </DashboardLayout>
+      </SuperAdminLayout>
     );
   }
 
   return (
-    <DashboardLayout>
+    <SuperAdminLayout>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Super Admin Dashboard</h1>
@@ -194,7 +194,7 @@ export const SuperAdminDashboardPage = () => {
           </table>
         </div>
       </div>
-    </DashboardLayout>
+    </SuperAdminLayout>
   );
 };
 

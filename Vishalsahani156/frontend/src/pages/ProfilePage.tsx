@@ -15,12 +15,18 @@ const profileSchema = z
     name: z
       .string()
       .trim()
-      .min(1, 'Name is required')
+      .min(2, 'Name must be at least 2 characters')
+      .max(80)
       .regex(
-        /^[A-Za-z]+$/,
-        'Name must contain only letters (A–Z) and no numbers or special characters.'
+        /^[A-Za-z\s]+$/,
+        'Name must contain only letters and spaces (no numbers or special characters).'
       ),
-    phone: z.string().min(10, 'Phone must be at least 10 digits'),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^\d+$/, 'Phone must contain digits only')
+      .min(7, 'Phone must be at least 7 digits')
+      .max(20, 'Phone must be at most 20 digits'),
     oldPassword: z.string().optional(),
     newPassword: z.string().optional(),
     confirmNewPassword: z.string().optional(),
@@ -164,7 +170,7 @@ export const ProfilePage = () => {
           />
           <PasswordField
             label="New Password"
-            placeholder="4–8 characters"
+            placeholder=" maximum 8 characters"
             visible={passwordsVisible}
             showToggle={false}
             {...register('newPassword')}

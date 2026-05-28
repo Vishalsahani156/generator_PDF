@@ -45,25 +45,41 @@ export const GeneratePdfPage = () => {
     getValues,
     setValue,
     formState: { errors },
-  } = useForm<PdfFormData>({ resolver: zodResolver(pdfFormSchema) });
+  } = useForm<PdfFormData>({
+    resolver: zodResolver(pdfFormSchema),
+    defaultValues: {
+      eventName: '',
+      eventDate: '',
+      sheetCategory: 'Custom Sheet',
+      description: '',
+    },
+  });
 
-  const applySuggestedToForm = (suggested?: Partial<PdfFormData>) => {
+  const applySuggestedToForm = (
+    suggested?: Partial<PdfFormData> & { eventDate?: string }
+  ) => {
     if (!suggested) return;
-    const next = suggested as Partial<PdfFormData>;
-    const keys = Object.keys(next) as Array<keyof PdfFormData>;
-    for (const k of keys) {
-      if (k === 'name' || k === 'email' || k === 'phone') continue;
-      const v = next[k];
-      if (typeof v === 'string' && v.trim()) {
-        if (k === 'sheetCategory') {
-          // If Gemini suggests a category not in allowed list, keep UX stable.
-          const allowed = new Set(SHEET_CATEGORIES);
-          const category = allowed.has(v as any) ? v : 'Custom Sheet';
-          setValue('sheetCategory', category, { shouldValidate: true, shouldDirty: true });
-          continue;
-        }
-        setValue(k, v, { shouldValidate: true, shouldDirty: true });
-      }
+
+    const allowed = new Set<string>(SHEET_CATEGORIES);
+
+    if (suggested.eventName?.trim()) {
+      setValue('eventName', suggested.eventName.trim(), { shouldValidate: true, shouldDirty: true });
+    }
+    const date = suggested.eventDate?.trim();
+    if (date) {
+      setValue('eventDate', date.includes('T') ? date.split('T')[0] : date, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    }
+    if (suggested.sheetCategory?.trim()) {
+      const category = allowed.has(suggested.sheetCategory)
+        ? suggested.sheetCategory
+        : 'Custom Sheet';
+      setValue('sheetCategory', category, { shouldValidate: true, shouldDirty: true });
+    }
+    if (suggested.description?.trim()) {
+      setValue('description', suggested.description.trim(), { shouldValidate: true, shouldDirty: true });
     }
   };
 
@@ -102,10 +118,13 @@ export const GeneratePdfPage = () => {
 
       toast.success('Event details filled from audio');
     } catch (err: unknown) {
-      const message =
+      const raw =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
         (err as Error)?.message ||
         'Failed to analyze audio';
+      const message = /empty transcript/i.test(raw)
+        ? 'No speech detected. Use a clear voice recording or MP3/MP4 with audible speech.'
+        : raw;
       toast.error(message);
     } finally {
       setIsAnalyzingAudio(false);
@@ -212,10 +231,7 @@ export const GeneratePdfPage = () => {
       const bytes = pdfBytes ?? (await buildPdf(data));
       if (!bytes) return;
 
-      await createPdfApi({
-        ...data,
-        pdfUrl: `generated-${Date.now()}.pdf`,
-      });
+      await createPdfApi(data);
       toast.success('PDF record saved to database!');
     } catch (err: unknown) {
       const message =
@@ -258,7 +274,7 @@ export const GeneratePdfPage = () => {
               Upload audio
               <input
                 type="file"
-                accept="audio/*"
+                accept="audio/*,video/mp4,.mp3,.mp4,.m4a,.wav,.ogg,.webm"
                 className="mt-1 block w-full text-xs text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200 dark:text-gray-200 dark:file:bg-gray-800 dark:file:text-gray-200 dark:hover:file:bg-gray-700"
                 disabled={isAnalyzingAudio || isListening}
                 onChange={(e) => {

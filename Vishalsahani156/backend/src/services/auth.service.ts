@@ -18,6 +18,6 @@ export async function verifyPassword(
 export function signToken(userId: string): string {
   // Put user id into `sub` claim so it stays consistent across token verifications.
   const expiresIn = env.JWT_EXPIRES_IN as any; // jsonwebtoken types want a constrained literal type
-  return jwt.sign({ sub: userId }, env.JWT_SECRET, { expiresIn });
+  return jwt.sign({ sub: userId, typ: "user" }, env.JWT_SECRET, { expiresIn });
 }
 

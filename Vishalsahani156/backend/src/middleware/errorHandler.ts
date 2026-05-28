@@ -9,6 +9,10 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ) {
+  if (err instanceof Error && err.message === "Only audio files are allowed (MP3, WAV, M4A, OGG, WebM, MP4)") {
+    return res.status(400).json({ message: err.message });
+  }
+
   if (err instanceof multer.MulterError) {
     const uploadErr = err;
     if (uploadErr.code === "LIMIT_FILE_SIZE") {

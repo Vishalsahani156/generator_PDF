@@ -9,9 +9,10 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   if (!token) return next(new AppError("Unauthorized", 401));
 
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as jwt.JwtPayload;
+    const payload = jwt.verify(token, env.JWT_SECRET) as jwt.JwtPayload & { typ?: string };
     const userId = payload.sub;
     if (!userId) return next(new AppError("Invalid token", 401));
+    if (payload.typ && payload.typ !== "user") return next(new AppError("Invalid token", 401));
     req.user = { userId: String(userId) };
     next();
   } catch {

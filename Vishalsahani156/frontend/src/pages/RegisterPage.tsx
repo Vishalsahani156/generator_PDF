@@ -42,14 +42,19 @@ const registerSchema = z
 type RegisterForm = z.infer<typeof registerSchema>;
 
 /** Stops browsers from pre-filling saved login/profile data on the register form. */
-const withoutAutofill = (field: UseFormRegisterReturn) => ({
-  ...field,
-  readOnly: true,
-  onFocus: (event: FocusEvent<HTMLInputElement>) => {
-    event.currentTarget.readOnly = false;
-    field.onFocus(event);
-  },
-});
+const withoutAutofill = (field: UseFormRegisterReturn) => {
+  const { onBlur, onChange, name, ref } = field;
+  return {
+    name,
+    ref,
+    onChange,
+    onBlur,
+    readOnly: true,
+    onFocus: (event: FocusEvent<HTMLInputElement>) => {
+      event.currentTarget.readOnly = false;
+    },
+  };
+};
 
 export const RegisterPage = () => {
   const [passwordsVisible, setPasswordsVisible] = useState(false);

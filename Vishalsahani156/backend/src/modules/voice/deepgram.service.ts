@@ -76,12 +76,18 @@ function buildTranscribeAttempts(opts: {
   });
 }
 
+type TranscribeOnceResult =
+  | { status: "success"; transcript: string; confidence?: number }
+  | { status: "empty" }
+  | { status: "retry" }
+  | { status: "fatal"; message: string; statusCode: number };
+
 async function deepgramTranscribeOnce(opts: {
   audioBuffer: Buffer;
   contentType: string;
   language?: string;
   detectLanguage?: boolean;
-}): Promise<{ transcript: string; confidence?: number; ok: boolean }> {
+}): Promise<TranscribeOnceResult> {
   const apiKey = String(env.DEEPGRAM_API_KEY || "").trim();
   const url = new URL("https://api.deepgram.com/v1/listen");
   url.searchParams.set("model", "nova-2");
@@ -116,18 +122,34 @@ async function deepgramTranscribeOnce(opts: {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new AppError(`Deepgram STT failed (${res.status}): ${text || res.statusText}`, 502);
+    if (res.status === 401 || res.status === 403) {
+      return {
+        status: "fatal",
+        statusCode: 502,
+        message: `Deepgram STT failed (${res.status}): ${text || res.statusText}`
+      };
+    }
+    // Wrong MIME / bad request — try the next content-type or language.
+    if (res.status >= 400 && res.status < 500) {
+      return { status: "retry" };
+    }
+    return {
+      status: "fatal",
+      statusCode: 502,
+      message: `Deepgram STT failed (${res.status}): ${text || res.statusText}`
+    };
   }
 
   let data: DeepgramListenResponse;
   try {
     data = (await res.json()) as DeepgramListenResponse;
   } catch {
-    throw new AppError("Deepgram returned invalid JSON", 502);
+    return { status: "retry" };
   }
 
   const parsed = parseDeepgramTranscript(data);
-  return { ...parsed, ok: Boolean(parsed.transcript) };
+  if (!parsed.transcript) return { status: "empty" };
+  return { status: "success", transcript: parsed.transcript, confidence: parsed.confidence };
 }
 
 export async function deepgramValidateApiKey(): Promise<{ valid: boolean; status: number; message: string }> {
@@ -173,8 +195,11 @@ export async function deepgramTranscribe(opts: {
       language: attempt.language,
       detectLanguage: attempt.detectLanguage
     });
-    if (result.ok) {
+    if (result.status === "success") {
       return { transcript: result.transcript, confidence: result.confidence };
+    }
+    if (result.status === "fatal") {
+      throw new AppError(result.message, result.statusCode);
     }
   }
 

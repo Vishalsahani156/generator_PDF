@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,66 +17,102 @@ import {
   getEventByIdApi,
   listEventsApi,
   updateEventApi,
+  type EventUpdateInput,
 } from '../api/events.api';
-import { EventsListMeta, PdfRecord, SHEET_CATEGORIES, PdfFormData } from '../types';
+import { EventsListMeta, PdfRecord, SHEET_CATEGORIES } from '../types';
 
 const editSchema = z.object({
-  eventName: z.string().min(2),
-  name: z.string().min(2),
-  email: z.string().email(),
-  phone: z.string().min(10),
-  eventDate: z.string().min(1),
-  sheetCategory: z.string().min(1),
-  description: z.string().min(1),
+  eventName: z.string().min(2, 'Event name is required').max(160),
+  eventDate: z.string().min(1, 'Event date is required'),
+  sheetCategory: z.enum(SHEET_CATEGORIES),
+  description: z.string().min(1, 'Description is required').max(4000),
 });
+
+type EventEditForm = z.infer<typeof editSchema>;
+
+function formatEventDate(value: string | Date | undefined): string {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).split('T')[0] ?? '';
+}
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const ax = err as { response?: { status?: number; data?: { message?: string } } };
+  return ax.response?.data?.message || fallback;
+}
 
 export const RecordsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [records, setRecords] = useState<PdfRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [meta, setMeta] = useState<EventsListMeta>({ page: 1, limit: 10, total: 0, totalPages: 1 });
-  const [editingId, setEditingId] = useState<string | null>(
-    searchParams.get('edit')
-  );
+  const [editingId, setEditingId] = useState<string | null>(searchParams.get('edit'));
 
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<PdfFormData>({ resolver: zodResolver(editSchema) });
+  } = useForm<EventEditForm>({ resolver: zodResolver(editSchema) });
 
   const page = useMemo(() => Math.max(Number(searchParams.get('page') || 1), 1), [searchParams]);
-  const limit = useMemo(() => Math.min(Math.max(Number(searchParams.get('limit') || 10), 1), 50), [searchParams]);
+  const limit = useMemo(
+    () => Math.min(Math.max(Number(searchParams.get('limit') || 10), 1), 50),
+    [searchParams]
+  );
 
-  const fetchRecords = async () => {
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  const fetchRecords = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await listEventsApi({
-        q: search || undefined,
+        q: debouncedSearch || undefined,
         category: categoryFilter || undefined,
         page,
         limit,
       });
       setRecords(Array.isArray(data.data) ? data.data : []);
-      setMeta(data.meta ?? { page, limit, total: data.data?.length ?? 0 });
+      setMeta(data.meta ?? { page, limit, total: data.data?.length ?? 0, totalPages: 1 });
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to load records';
-      toast.error(message);
+      toast.error(apiErrorMessage(err, 'Failed to load records'));
       setRecords([]);
       setMeta({ page, limit, total: 0, totalPages: 1 });
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearch, categoryFilter, page, limit]);
 
   useEffect(() => {
     fetchRecords();
-  }, [search, categoryFilter, page, limit]);
+  }, [fetchRecords]);
+
+  const loadRecord = useCallback(
+    async (id: string) => {
+      try {
+        const { data } = await getEventByIdApi(id);
+        const record = data.data;
+        const category = SHEET_CATEGORIES.includes(record.sheetCategory as (typeof SHEET_CATEGORIES)[number])
+          ? (record.sheetCategory as EventEditForm['sheetCategory'])
+          : 'Custom Sheet';
+        reset({
+          eventName: record.eventName || '',
+          eventDate: formatEventDate(record.eventDate),
+          sheetCategory: category,
+          description: record.description,
+        });
+      } catch (err: unknown) {
+        toast.error(apiErrorMessage(err, 'Failed to load record'));
+      }
+    },
+    [reset]
+  );
 
   useEffect(() => {
     const editId = searchParams.get('edit');
@@ -84,25 +120,7 @@ export const RecordsPage = () => {
       setEditingId(editId);
       loadRecord(editId);
     }
-  }, [searchParams]);
-
-  const loadRecord = async (id: string) => {
-    try {
-      const { data } = await getEventByIdApi(id);
-      const record = data.data;
-      reset({
-        eventName: record.eventName || '',
-        name: record.name,
-        email: record.email,
-        phone: record.phone,
-        eventDate: record.eventDate.split('T')[0],
-        sheetCategory: record.sheetCategory,
-        description: record.description,
-      });
-    } catch {
-      toast.error('Failed to load record');
-    }
-  };
+  }, [searchParams, loadRecord]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this event?')) return;
@@ -114,35 +132,41 @@ export const RecordsPage = () => {
         setEditingId(null);
         setSearchParams({});
       }
-    } catch {
-      toast.error('Failed to delete record');
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Failed to delete record'));
     }
   };
 
   const handleEdit = (record: PdfRecord) => {
     setEditingId(record._id);
     setSearchParams({ edit: record._id });
+    const category = SHEET_CATEGORIES.includes(record.sheetCategory as (typeof SHEET_CATEGORIES)[number])
+      ? (record.sheetCategory as EventEditForm['sheetCategory'])
+      : 'Custom Sheet';
     reset({
       eventName: record.eventName || '',
-      name: record.name,
-      email: record.email,
-      phone: record.phone,
-      eventDate: record.eventDate.split('T')[0],
-      sheetCategory: record.sheetCategory,
+      eventDate: formatEventDate(record.eventDate),
+      sheetCategory: category,
       description: record.description,
     });
   };
 
   const onUpdate = handleSubmit(async (data) => {
     if (!editingId) return;
+    const payload: EventUpdateInput = {
+      eventName: data.eventName,
+      eventDate: data.eventDate,
+      sheetCategory: data.sheetCategory,
+      description: data.description,
+    };
     try {
-      await updateEventApi(editingId, data);
+      await updateEventApi(editingId, payload);
       toast.success('Event updated');
       setEditingId(null);
       setSearchParams({});
       fetchRecords();
-    } catch {
-      toast.error('Failed to update record');
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Failed to update record'));
     }
   });
 
@@ -152,12 +176,12 @@ export const RecordsPage = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${record.sheetCategory}-${record.eventName || record.name}.pdf`.replace(/\s+/g, '-');
+      a.download = `${record.sheetCategory}-${record.eventName || record.name || 'event'}.pdf`.replace(/\s+/g, '-');
       a.click();
       URL.revokeObjectURL(url);
       toast.success('PDF downloaded');
     } catch (err: unknown) {
-      toast.error((err as Error)?.message || 'Failed to download PDF');
+      toast.error(apiErrorMessage(err, 'Failed to download PDF'));
     }
   };
 
@@ -171,8 +195,8 @@ export const RecordsPage = () => {
       a.click();
       URL.revokeObjectURL(url);
       toast.success('All events PDF downloaded');
-    } catch {
-      toast.error('Failed to download all events PDF');
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Failed to download all events PDF'));
     }
   };
 
@@ -219,20 +243,29 @@ export const RecordsPage = () => {
 
       {editingId && (
         <div className="mb-8 rounded-xl border border-primary-200 bg-primary-50/50 p-6 dark:border-primary-800 dark:bg-primary-900/20">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-            Edit Event
-          </h2>
-          <form>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Edit Event</h2>
+          <form onSubmit={onUpdate}>
             <InputField label="Event Name" {...register('eventName')} error={errors.eventName?.message} />
-            <InputField label="Name" {...register('name')} error={errors.name?.message} />
-            <InputField label="Email" type="email" {...register('email')} error={errors.email?.message} />
-            <InputField label="Phone" {...register('phone')} error={errors.phone?.message} />
             <InputField label="Event Date" type="date" {...register('eventDate')} error={errors.eventDate?.message} />
-            <SelectField label="Category" options={[...SHEET_CATEGORIES]} {...register('sheetCategory')} error={errors.sheetCategory?.message} />
+            <SelectField
+              label="Category"
+              options={[...SHEET_CATEGORIES]}
+              {...register('sheetCategory')}
+              error={errors.sheetCategory?.message}
+            />
             <TextAreaField label="Description" {...register('description')} error={errors.description?.message} />
             <div className="flex gap-2">
-              <Button onClick={onUpdate} isLoading={isSubmitting}>Save Changes</Button>
-              <Button variant="secondary" type="button" onClick={() => { setEditingId(null); setSearchParams({}); }}>
+              <Button type="submit" isLoading={isSubmitting}>
+                Save Changes
+              </Button>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => {
+                  setEditingId(null);
+                  setSearchParams({});
+                }}
+              >
                 Cancel
               </Button>
             </div>
@@ -249,7 +282,7 @@ export const RecordsPage = () => {
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 font-medium hidden sm:table-cell">Date</th>
+                <th className="px-4 py-3 font-medium hidden sm:table-cell">Event Date</th>
                 <th className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
@@ -259,13 +292,13 @@ export const RecordsPage = () => {
                   <tr key={record._id}>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 dark:text-white">
-                        {record.eventName || record.name}
+                        {record.eventName || record.name || 'Untitled'}
                       </p>
-                      <p className="text-xs text-gray-500">{record.email}</p>
+                      {record.email ? <p className="text-xs text-gray-500">{record.email}</p> : null}
                     </td>
                     <td className="px-4 py-3">{record.sheetCategory}</td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      {new Date(record.createdAt).toLocaleDateString()}
+                      {formatEventDate(record.eventDate) || '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">

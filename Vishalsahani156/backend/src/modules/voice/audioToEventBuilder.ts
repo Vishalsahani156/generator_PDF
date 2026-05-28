@@ -1,3 +1,4 @@
+import { resolveSheetCategoryFromVoice } from "../../utils/sheetCategory";
 import type { GeminiExtractedEvent } from "./geminiEventExtractor";
 import { analyzeTranscript, type VoiceAnalysis } from "./transcriptParser";
 
@@ -37,7 +38,7 @@ function buildFromGemini(event: GeminiExtractedEvent, transcript: string): Audio
   return {
     eventName: (event.eventName || event.eventType || "").trim() || "New Event",
     eventDate,
-    sheetCategory: String(event.eventType || "").trim() || "Custom Sheet",
+    sheetCategory: resolveSheetCategoryFromVoice(String(event.eventType || "Custom Sheet")),
     description:
       descriptionParts.join("\n").trim() || `Event created from voice: ${transcript.slice(0, 200)}`
   };

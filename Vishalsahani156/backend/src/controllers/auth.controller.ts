@@ -53,6 +53,8 @@ export const login = catchAsync(async (req: Request, res: Response) => {
   const ok = await verifyPassword(body.password, user.password);
   if (!ok) throw new AppError("Invalid email or password", 401);
 
+  if (user.isBlocked) throw new AppError("Your account is blocked", 403);
+
   const token = signToken(String(user._id));
 
   return res.json({
@@ -96,16 +98,7 @@ export const updateMe = catchAsync(async (req: Request, res: Response) => {
       throw new AppError("Old password is incorrect", 400);
     }
 
-    const hashedPassword = await hashPassword(body.newPassword);
-    const updateResult = await User.updateOne(
-      { _id: userId },
-      { $set: { password: hashedPassword } }
-    );
-    if (updateResult.matchedCount === 0) {
-      throw new AppError("User not found", 404);
-    }
-
-    user.password = hashedPassword;
+    user.password = await hashPassword(body.newPassword);
     passwordUpdated = true;
   }
 

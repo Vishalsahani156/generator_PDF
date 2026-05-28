@@ -12,7 +12,10 @@ export function requireSuperAdminAuth(req: Request, _res: Response, next: NextFu
     const payload = jwt.verify(token, env.SUPER_ADMIN_JWT_SECRET) as jwt.JwtPayload & { typ?: string };
     const adminId = payload.sub;
     if (!adminId) return next(new AppError("Invalid token", 401));
-    if (payload.typ && payload.typ !== "super_admin") return next(new AppError("Invalid token", 401));
+    if (payload.typ === "user") return next(new AppError("Invalid token", 401));
+    if (payload.typ && payload.typ !== "super_admin") {
+      return next(new AppError("Invalid token", 401));
+    }
     req.superAdmin = { adminId: String(adminId) };
     next();
   } catch {

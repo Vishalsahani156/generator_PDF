@@ -11,6 +11,8 @@ import {
 } from "./audioToEventBuilder";
 import { env } from "../../config/env";
 import { PdfRecord } from "../../models/PdfRecord";
+import { resolveSheetCategoryFromVoice } from "../../utils/sheetCategory";
+import type { GeminiExtractedEvent } from "./geminiEventExtractor";
 
 export const deepgramHealth = catchAsync(async (_req: Request, res: Response) => {
   const result = await deepgramValidateApiKey();
@@ -135,35 +137,60 @@ export const bookEventFromAudio = catchAsync(async (req: Request, res: Response)
     filename: file.originalname
   });
 
-  const event = await geminiExtractEventDetails({
-    transcript,
-    timezone
-  });
-
-  const eventDate = toIsoDateOrEmpty(event.date);
-  if (!eventDate) throw new AppError("Could not determine event date from audio", 400);
-
-  const descriptionParts: string[] = [];
-  if (event.time) descriptionParts.push(`Time: ${event.time}`);
-  if (event.location) descriptionParts.push(`Location: ${event.location}`);
-  if (event.notes) descriptionParts.push(event.notes);
-
-  const suggested = {
-    eventName: (event.eventName || event.eventType || "").trim() || "New Event",
-    eventDate,
-    sheetCategory: String(event.eventType || "").trim(),
-    description: descriptionParts.join("\n").trim()
+  let event: GeminiExtractedEvent | null = null;
+  let suggested: {
+    eventName: string;
+    eventDate: string;
+    sheetCategory: string;
+    description: string;
   };
 
-  if (!suggested.sheetCategory) throw new AppError("Could not determine event category from audio", 400);
-  if (!suggested.description) throw new AppError("Could not determine event description from audio", 400);
+  if (env.GEMINI_API_KEY.startsWith("AIza")) {
+    try {
+      event = await geminiExtractEventDetails({ transcript, timezone });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[bookEventFromAudio] Gemini failed, using local transcript parser:",
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+
+  if (event) {
+    const eventDate = toIsoDateOrEmpty(event.date);
+    if (!eventDate) throw new AppError("Could not determine event date from audio", 400);
+
+    const descriptionParts: string[] = [];
+    if (event.time) descriptionParts.push(`Time: ${event.time}`);
+    if (event.location) descriptionParts.push(`Location: ${event.location}`);
+    if (event.notes) descriptionParts.push(event.notes);
+
+    const rawCategory = String(event.eventType || "").trim();
+    suggested = {
+      eventName: (event.eventName || event.eventType || "").trim() || "New Event",
+      eventDate,
+      sheetCategory: resolveSheetCategoryFromVoice(rawCategory || "Custom Sheet"),
+      description: descriptionParts.join("\n").trim()
+    };
+  } else {
+    const parsed = buildAudioToEventFromParser(transcript, confidence);
+    suggested = parsed.suggested;
+    if (!suggested.eventDate) {
+      throw new AppError("Could not determine event date from audio", 400);
+    }
+  }
+
+  if (!suggested.description) {
+    throw new AppError("Could not determine event description from audio", 400);
+  }
 
   const record = await PdfRecord.create({
     userId,
     name: "",
     email: "",
     phone: "",
-    eventDate: new Date(eventDate),
+    eventDate: new Date(suggested.eventDate),
     sheetCategory: suggested.sheetCategory,
     description: suggested.description,
     eventName: suggested.eventName

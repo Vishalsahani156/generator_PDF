@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { User } from "../models/User";
 import { AppError } from "../utils/AppError";
+import { escapeRegex } from "../utils/escapeRegex";
 import { catchAsync } from "../utils/catchAsync";
 import {
   adminUserIdParamSchema,
@@ -32,7 +33,7 @@ export const listAllUsers = catchAsync(async (req: Request, res: Response) => {
 
   const filter: Record<string, unknown> = {};
   if (q) {
-    const regex = new RegExp(q, "i");
+    const regex = new RegExp(escapeRegex(q), "i");
     (filter as any).$or = [{ fullName: regex }, { email: regex }, { phoneNumber: regex }];
   }
 

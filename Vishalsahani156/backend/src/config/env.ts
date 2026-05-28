@@ -85,15 +85,28 @@ function required(name: string): string {
   return value;
 }
 
+const jwtSecret = required("JWT_SECRET");
+const superAdminJwtSecret = process.env.SUPER_ADMIN_JWT_SECRET?.trim() || jwtSecret;
+
+if (
+  (process.env.NODE_ENV || "development") === "production" &&
+  superAdminJwtSecret === jwtSecret
+) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[env] SUPER_ADMIN_JWT_SECRET is not set; Super Admin uses JWT_SECRET. Set a distinct SUPER_ADMIN_JWT_SECRET in production."
+  );
+}
+
 export const env = {
   PORT: process.env.PORT ? Number(process.env.PORT) : 5000,
   NODE_ENV: process.env.NODE_ENV || "development",
   MONGODB_URI: required("MONGODB_URI"),
-  JWT_SECRET: required("JWT_SECRET"),
+  JWT_SECRET: jwtSecret,
   DEEPGRAM_API_KEY: cleanEnvValue(process.env.DEEPGRAM_API_KEY || ""),
   GEMINI_API_KEY: cleanEnvValue(process.env.GEMINI_API_KEY || ""),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
-  SUPER_ADMIN_JWT_SECRET: process.env.SUPER_ADMIN_JWT_SECRET || required("JWT_SECRET"),
+  SUPER_ADMIN_JWT_SECRET: superAdminJwtSecret,
   SUPER_ADMIN_JWT_EXPIRES_IN: process.env.SUPER_ADMIN_JWT_EXPIRES_IN || "7d",
   // If set, required for new Super Admin registrations.
   // If not set, only the first Super Admin can register (bootstrap mode).

@@ -1,5 +1,13 @@
 import api from './axios';
-import { EventsListMeta, PdfFormData, PdfRecord } from '../types';
+import { EventsListMeta, PdfRecord } from '../types';
+
+/** Fields accepted by PUT /events/:id (backend uses eventCategory, not sheetCategory). */
+export type EventUpdateInput = {
+  eventName: string;
+  eventDate: string;
+  sheetCategory: string;
+  description: string;
+};
 
 export const listEventsApi = (params?: { q?: string; category?: string; page?: number; limit?: number }) =>
   api.get<{ success: boolean; data: PdfRecord[]; meta: EventsListMeta }>('/events', { params });
@@ -7,8 +15,13 @@ export const listEventsApi = (params?: { q?: string; category?: string; page?: n
 export const getEventByIdApi = (id: string) =>
   api.get<{ success: boolean; data: PdfRecord }>(`/events/${id}`);
 
-export const updateEventApi = (id: string, data: Partial<PdfFormData>) =>
-  api.put<{ success: boolean; data: PdfRecord }>(`/events/${id}`, data);
+export const updateEventApi = (id: string, data: EventUpdateInput) =>
+  api.put<{ success: boolean; data: PdfRecord }>(`/events/${id}`, {
+    eventName: data.eventName,
+    eventDate: data.eventDate,
+    eventCategory: data.sheetCategory,
+    description: data.description,
+  });
 
 export const deleteEventApi = (id: string) =>
   api.delete<{ success: boolean; message: string }>(`/events/${id}`);

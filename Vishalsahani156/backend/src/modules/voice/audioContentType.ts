@@ -110,6 +110,10 @@ export function resolveAudioContentType(opts: {
     return declared;
   }
 
+  if (declared === "video/mp4") {
+    return fromBytes ?? fromName ?? "audio/mp4";
+  }
+
   if (fromBytes) return fromBytes;
   if (fromName) return fromName;
 
