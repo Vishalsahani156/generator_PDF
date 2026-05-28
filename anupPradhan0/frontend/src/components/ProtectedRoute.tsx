@@ -6,7 +6,11 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { data, isLoading, isError } = useAuth();
 
   if (isLoading) {
-    return <div style={{ padding: 24 }}>Loading…</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <p className="text-sm text-blue-300">Loading…</p>
+      </div>
+    );
   }
 
   if (isError || !data) {

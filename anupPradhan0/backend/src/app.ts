@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth';
+import eventRoutes from './routes/events';
 import { env } from './config/env';
+import { errorHandler } from './middleware/error';
 
 export function createApp() {
   const app = express();
@@ -21,6 +23,9 @@ export function createApp() {
   });
 
   app.use('/api/auth', authRoutes);
+  app.use('/api/events', eventRoutes);
+
+  app.use(errorHandler);
 
   return app;
 }

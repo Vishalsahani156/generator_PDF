@@ -72,13 +72,40 @@ Creates:
   httpOnly cookie (server-side).
 - `POST /api/auth/logout` clears both.
 
+## Feature: Events + PDF export
+
+Once signed in, the dashboard at `/` lets you:
+
+- Add events with **name**, **time/date**, **number**, and **location**.
+- Delete events.
+- Download all your events as a single multi-page A4 PDF, styled in the same
+  blue palette as the UI. The backend uses `pdfkit` and computes how many
+  event cards fit per page, paginating manually so content never overflows.
+
 ## API
 
-| Method | Path              | Auth | Body                  |
-| ------ | ----------------- | ---- | --------------------- |
-| POST   | `/api/auth/login` | no   | `{ email, password }` |
-| POST   | `/api/auth/logout`| no   | —                     |
-| GET    | `/api/auth/me`    | yes  | —                     |
+### Auth
+
+| Method | Path                 | Auth | Body                          | Response                              |
+| ------ | -------------------- | ---- | ----------------------------- | ------------------------------------- |
+| POST   | `/api/auth/register` | no   | `{ email, password, name? }`  | `{ token, user }` (201)               |
+| POST   | `/api/auth/login`    | no   | `{ email, password }`         | `{ token, user }`                     |
+| POST   | `/api/auth/logout`   | no   | —                             | `{ ok: true }` and clears the cookie  |
+| GET    | `/api/auth/me`       | yes  | —                             | `{ user }`                            |
+
+### Events
+
+All routes require auth. Send the JWT as `Authorization: Bearer <token>` or
+rely on the `token` httpOnly cookie set on login.
+
+| Method | Path                  | Body                                       | Response                          |
+| ------ | --------------------- | ------------------------------------------ | --------------------------------- |
+| GET    | `/api/events`         | —                                          | `{ events: EventItem[] }`         |
+| POST   | `/api/events`         | `{ name, datetime, number, location }`     | `{ event: EventItem }` (201)      |
+| DELETE | `/api/events/:id`     | —                                          | `{ ok: true }` or `404`           |
+| GET    | `/api/events/pdf`     | —                                          | `application/pdf` (download)      |
+
+`EventItem`: `{ id, name, datetime (ISO), number, location }`
 
 ## Root scripts
 
