@@ -76,10 +76,44 @@ export async function deleteEvent(req: Request, res: Response): Promise<void> {
   res.json({ ok: true });
 }
 
+function parseDateParam(raw: unknown): Date | undefined | null {
+  if (raw === undefined || raw === '') return undefined;
+  if (typeof raw !== 'string') return null;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
 export async function downloadEventsPdf(req: Request, res: Response): Promise<void> {
+  const from = parseDateParam(req.query.from);
+  const to = parseDateParam(req.query.to);
+  if (from === null || to === null) {
+    res.status(400).json({ error: 'from/to must be valid dates' });
+    return;
+  }
+
+  // If `to` is a bare date (no time), include the whole day by snapping to end-of-day.
+  let toBound = to;
+  if (toBound && typeof req.query.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) {
+    toBound = new Date(toBound);
+    toBound.setHours(23, 59, 59, 999);
+  }
+
+  if (from && toBound && from.getTime() > toBound.getTime()) {
+    res.status(400).json({ error: '`from` must be on or before `to`' });
+    return;
+  }
+
+  const datetimeFilter: Record<string, Date> = {};
+  if (from) datetimeFilter.$gte = from;
+  if (toBound) datetimeFilter.$lte = toBound;
+
+  const eventsFilter: Record<string, unknown> = { user: req.auth!.sub };
+  if (Object.keys(datetimeFilter).length > 0) eventsFilter.datetime = datetimeFilter;
+
   const [user, events] = await Promise.all([
     User.findById(req.auth!.sub).select('email name').lean(),
-    Event.find({ user: req.auth!.sub }).sort({ datetime: 1 }).lean(),
+    Event.find(eventsFilter).sort({ datetime: 1 }).lean(),
   ]);
 
   if (!user) {
@@ -100,6 +134,7 @@ export async function downloadEventsPdf(req: Request, res: Response): Promise<vo
       number: e.number,
       location: e.location,
     })),
+    range: from || toBound ? { from, to: toBound } : undefined,
     sink: res,
   });
 }

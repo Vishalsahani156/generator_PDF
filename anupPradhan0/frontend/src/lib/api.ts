@@ -84,8 +84,16 @@ export async function deleteEvent(id: string): Promise<void> {
   await api.delete(`/events/${id}`);
 }
 
-export async function downloadEventsPdf(): Promise<void> {
-  const response = await api.get('/events/pdf', { responseType: 'blob' });
+export interface PdfRange {
+  from?: string;
+  to?: string;
+}
+
+export async function downloadEventsPdf(range?: PdfRange): Promise<void> {
+  const params: Record<string, string> = {};
+  if (range?.from) params.from = range.from;
+  if (range?.to) params.to = range.to;
+  const response = await api.get('/events/pdf', { responseType: 'blob', params });
   const blob = new Blob([response.data], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

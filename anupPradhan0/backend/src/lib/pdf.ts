@@ -8,190 +8,443 @@ export interface EventForPdf {
   location: string;
 }
 
+export interface DateRange {
+  from?: Date;
+  to?: Date;
+}
+
 interface BuildOpts {
   ownerEmail: string;
   ownerName?: string;
   events: EventForPdf[];
+  range?: DateRange;
   sink: Writable;
 }
 
 const COLOR = {
-  ink: '#1E3A5F',
-  blue600: '#2563EB',
-  blue700: '#1D4ED8',
-  blue300: '#93C5FD',
-  blue200: '#BFDBFE',
-  blue50: '#EFF6FF',
-  white: '#FFFFFF',
+  ink: '#0F172A',
+  body: '#1E3A5F',
+  accent: '#2563EB',
+  muted: '#64748B',
+  faint: '#CBD5E1',
+  rule: '#E2E8F0',
+  paper: '#FFFFFF',
+  tint: '#F8FAFC',
 };
 
-const PAGE_MARGIN = 48;
-const TITLE_BLOCK_HEIGHT = 88;
-const FOOTER_HEIGHT = 32;
-const CARD_HEIGHT = 96;
-const CARD_GAP = 12;
+const FONT = {
+  regular: 'Helvetica',
+  bold: 'Helvetica-Bold',
+};
 
-function fmtDate(d: Date): string {
+const PAGE_MARGIN = 56;
+const HEADER_BAND = 32;
+const FOOTER_BAND = 32;
+const ROW_HEIGHT = 56;
+const ROW_GAP = 6;
+const SECTION_HEADER = 40;
+
+function fmtDayHeader(d: Date): string {
+  return d
+    .toLocaleString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    })
+    .toUpperCase();
+}
+
+function fmtTime(d: Date): string {
   return d.toLocaleString('en-US', {
-    weekday: 'short',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   });
 }
 
-function drawTitleBlock(
-  doc: PDFKit.PDFDocument,
-  opts: { title: string; subtitle: string; x: number; y: number; width: number }
-) {
-  const { title, subtitle, x, y, width } = opts;
+function fmtGeneratedDate(d: Date): string {
+  return d.toLocaleString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function fmtNumber(n: number): string {
+  if (Number.isInteger(n)) return n.toLocaleString('en-US');
+  return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+interface PageContext {
+  doc: PDFKit.PDFDocument;
+  width: number;
+  height: number;
+  contentWidth: number;
+  contentLeft: number;
+  contentRight: number;
+  contentTop: number;
+  contentBottom: number;
+  ownerEmail: string;
+}
+
+interface DaySection {
+  date: Date;
+  events: EventForPdf[];
+}
+
+function groupByDay(events: EventForPdf[]): DaySection[] {
+  const map = new Map<string, DaySection>();
+  for (const e of events) {
+    const k = dayKey(e.datetime);
+    const existing = map.get(k);
+    if (existing) existing.events.push(e);
+    else map.set(k, { date: e.datetime, events: [e] });
+  }
+  return Array.from(map.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
+function drawBrand(doc: PDFKit.PDFDocument, x: number, y: number) {
+  doc.save();
+  doc.rect(x, y, 7, 7).fillColor(COLOR.accent).fill();
   doc
-    .font('Helvetica-Bold')
-    .fontSize(24)
+    .font(FONT.bold)
+    .fontSize(8)
     .fillColor(COLOR.ink)
-    .text(title, x, y, { width });
+    .text('APERTURE', x + 12, y - 0.5, { lineBreak: false, characterSpacing: 1.5 });
+  doc.restore();
+}
+
+function drawTopBand(ctx: PageContext, rightText: string) {
+  const { doc, contentLeft, contentRight } = ctx;
+  drawBrand(doc, contentLeft, PAGE_MARGIN);
   doc
-    .font('Helvetica')
-    .fontSize(11)
-    .fillColor(COLOR.blue600)
-    .text(subtitle, x, y + 32, { width });
-  // Accent rule
+    .font(FONT.regular)
+    .fontSize(8)
+    .fillColor(COLOR.muted);
+  const w = doc.widthOfString(rightText);
+  doc.text(rightText, contentRight - w, PAGE_MARGIN, {
+    lineBreak: false,
+    characterSpacing: 1.2,
+  });
   doc
-    .moveTo(x, y + 64)
-    .lineTo(x + width, y + 64)
-    .lineWidth(1)
-    .strokeColor(COLOR.blue200)
+    .moveTo(contentLeft, PAGE_MARGIN + HEADER_BAND - 8)
+    .lineTo(contentRight, PAGE_MARGIN + HEADER_BAND - 8)
+    .lineWidth(0.5)
+    .strokeColor(COLOR.rule)
     .stroke();
 }
 
-function drawCard(
-  doc: PDFKit.PDFDocument,
-  event: EventForPdf,
-  index: number,
-  bounds: { x: number; y: number; width: number; height: number }
+function drawBottomBand(ctx: PageContext, pageNumber: number, pageCount: number) {
+  const { doc, contentLeft, contentRight, contentBottom, ownerEmail } = ctx;
+  doc
+    .moveTo(contentLeft, contentBottom + 8)
+    .lineTo(contentRight, contentBottom + 8)
+    .lineWidth(0.5)
+    .strokeColor(COLOR.rule)
+    .stroke();
+
+  doc.font(FONT.regular).fontSize(8).fillColor(COLOR.muted);
+  doc.text(ownerEmail, contentLeft, contentBottom + 16, { lineBreak: false });
+
+  const pageLabel = `${String(pageNumber).padStart(2, '0')} / ${String(pageCount).padStart(2, '0')}`;
+  const w = doc.widthOfString(pageLabel);
+  doc.font(FONT.bold).fillColor(COLOR.ink);
+  doc.text(pageLabel, contentRight - w, contentBottom + 16, {
+    lineBreak: false,
+    characterSpacing: 0.8,
+  });
+}
+
+function fmtRange(range: DateRange | undefined, fallback: () => string): string {
+  if (!range || (!range.from && !range.to)) return fallback();
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
+  if (range.from && range.to) {
+    return `${range.from.toLocaleString('en-US', opts)} – ${range.to.toLocaleString('en-US', opts)}`;
+  }
+  if (range.from) return `From ${range.from.toLocaleString('en-US', opts)}`;
+  return `Through ${range.to!.toLocaleString('en-US', opts)}`;
+}
+
+function drawCover(
+  ctx: PageContext,
+  opts: { ownerName?: string; events: EventForPdf[]; range?: DateRange }
 ) {
-  const { x, y, width, height } = bounds;
+  const { doc, contentLeft, contentRight, contentTop, contentBottom, ownerEmail } = ctx;
+  const eyebrow = `${new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()} · EVENTS`;
+  drawTopBand(ctx, eyebrow);
 
-  // Background
-  doc.save();
-  doc.roundedRect(x, y, width, height, 8).fillColor(COLOR.blue50).fill();
-  // Left accent stripe
-  doc.rect(x, y, 4, height).fillColor(COLOR.blue600).fill();
-  // Border
+  // Big title block — placed roughly at one-third down the page for balance
+  const titleY = contentTop + 120;
+
   doc
-    .roundedRect(x, y, width, height, 8)
-    .lineWidth(1)
-    .strokeColor(COLOR.blue200)
-    .stroke();
-  doc.restore();
-
-  const innerX = x + 20;
-  const innerY = y + 14;
-  const innerWidth = width - 28;
-
-  // Index pill
-  const pillText = `#${String(index + 1).padStart(2, '0')}`;
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR.blue600);
-  const pillWidth = doc.widthOfString(pillText) + 12;
-  doc.save();
-  doc
-    .roundedRect(innerX, innerY, pillWidth, 16, 4)
-    .lineWidth(1)
-    .strokeColor(COLOR.blue600)
-    .stroke();
-  doc.text(pillText, innerX + 6, innerY + 3.5, { lineBreak: false });
-  doc.restore();
-
-  // Title
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(14)
-    .fillColor(COLOR.ink)
-    .text(event.name, innerX + pillWidth + 8, innerY, {
-      width: innerWidth - pillWidth - 8,
-      ellipsis: true,
+    .font(FONT.regular)
+    .fontSize(9)
+    .fillColor(COLOR.muted)
+    .text('A PRINTABLE LOG', contentLeft, titleY, {
       lineBreak: false,
+      characterSpacing: 2,
     });
 
-  // Detail rows
-  const detailY = innerY + 28;
-  const colWidth = (innerWidth - 16) / 3;
-  drawDetail(doc, 'When', fmtDate(event.datetime), innerX, detailY, colWidth);
-  drawDetail(
-    doc,
-    'Number',
-    String(event.number),
-    innerX + colWidth + 8,
-    detailY,
-    colWidth
-  );
-  drawDetail(
-    doc,
-    'Location',
-    event.location,
-    innerX + (colWidth + 8) * 2,
-    detailY,
-    colWidth
-  );
-}
-
-function drawDetail(
-  doc: PDFKit.PDFDocument,
-  label: string,
-  value: string,
-  x: number,
-  y: number,
-  width: number
-) {
   doc
-    .font('Helvetica')
-    .fontSize(8)
-    .fillColor(COLOR.blue300)
-    .text(label.toUpperCase(), x, y, { width, lineBreak: false });
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(11)
+    .font(FONT.bold)
+    .fontSize(64)
     .fillColor(COLOR.ink)
-    .text(value, x, y + 12, { width, ellipsis: true, lineBreak: false });
-}
+    .text('Your events.', contentLeft, titleY + 24, {
+      lineBreak: false,
+      characterSpacing: -1,
+    });
 
-function drawFooter(
-  doc: PDFKit.PDFDocument,
-  pageNumber: number,
-  pageCount: number,
-  ownerEmail: string
-) {
-  const y = doc.page.height - PAGE_MARGIN + 8;
+  // Description
+  const count = opts.events.length;
+  const dayCount = groupByDay(opts.events).length;
+  const eventWord = count === 1 ? 'event' : 'events';
+  const dayWord = dayCount === 1 ? 'day' : 'days';
+  const summary =
+    count === 0
+      ? 'No events scheduled yet.'
+      : `${count} ${eventWord} across ${dayCount} ${dayWord}.`;
+
   doc
-    .moveTo(PAGE_MARGIN, y - 8)
-    .lineTo(doc.page.width - PAGE_MARGIN, y - 8)
-    .lineWidth(1)
-    .strokeColor(COLOR.blue200)
+    .font(FONT.regular)
+    .fontSize(13)
+    .fillColor(COLOR.body)
+    .text(summary, contentLeft, titleY + 116, { lineBreak: false });
+
+  // Owner block
+  const ownerY = titleY + 180;
+  doc
+    .font(FONT.regular)
+    .fontSize(8)
+    .fillColor(COLOR.muted)
+    .text('PREPARED FOR', contentLeft, ownerY, { lineBreak: false, characterSpacing: 1.5 });
+
+  doc
+    .font(FONT.bold)
+    .fontSize(14)
+    .fillColor(COLOR.ink)
+    .text(opts.ownerName || ownerEmail, contentLeft, ownerY + 14, { lineBreak: false });
+
+  if (opts.ownerName) {
+    doc
+      .font(FONT.regular)
+      .fontSize(11)
+      .fillColor(COLOR.muted)
+      .text(ownerEmail, contentLeft, ownerY + 34, { lineBreak: false });
+  }
+
+  // Right-aligned date / count column
+  const rightColX = contentRight - 200;
+  doc
+    .font(FONT.regular)
+    .fontSize(8)
+    .fillColor(COLOR.muted)
+    .text('GENERATED', rightColX, ownerY, { lineBreak: false, characterSpacing: 1.5 });
+  doc
+    .font(FONT.bold)
+    .fontSize(14)
+    .fillColor(COLOR.ink)
+    .text(fmtGeneratedDate(new Date()), rightColX, ownerY + 14, { lineBreak: false });
+
+  // Show selected range first (if any), otherwise the actual span of included events.
+  const rangeStr = fmtRange(opts.range, () => {
+    if (count === 0) return '—';
+    const first = opts.events[0].datetime;
+    const last = opts.events[count - 1].datetime;
+    return dayKey(first) === dayKey(last)
+      ? first.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : `${first.toLocaleString('en-US', { month: 'short', day: 'numeric' })} – ${last.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  });
+  doc
+    .font(FONT.regular)
+    .fontSize(11)
+    .fillColor(COLOR.muted)
+    .text(rangeStr, rightColX, ownerY + 34, { lineBreak: false });
+
+  // Bottom line of cover: small subtle text + corner mark
+  doc
+    .moveTo(contentLeft, contentBottom + 8)
+    .lineTo(contentRight, contentBottom + 8)
+    .lineWidth(0.5)
+    .strokeColor(COLOR.rule)
     .stroke();
 
   doc
-    .font('Helvetica')
-    .fontSize(9)
-    .fillColor(COLOR.blue300)
-    .text(ownerEmail, PAGE_MARGIN, y, { lineBreak: false });
+    .font(FONT.regular)
+    .fontSize(8)
+    .fillColor(COLOR.muted)
+    .text('PAGE  COVER', contentLeft, contentBottom + 16, {
+      lineBreak: false,
+      characterSpacing: 1.5,
+    });
 
-  const pageStr = `Page ${pageNumber} of ${pageCount}`;
-  const w = doc.widthOfString(pageStr);
-  doc.text(pageStr, doc.page.width - PAGE_MARGIN - w, y, { lineBreak: false });
+  const totalLine = `${String(count).padStart(2, '0')} TOTAL`;
+  doc.font(FONT.bold).fillColor(COLOR.ink);
+  const tw = doc.widthOfString(totalLine);
+  doc.text(totalLine, contentRight - tw, contentBottom + 16, {
+    lineBreak: false,
+    characterSpacing: 1.5,
+  });
+}
+
+function drawSectionHeader(ctx: PageContext, date: Date, y: number): number {
+  const { doc, contentLeft, contentRight } = ctx;
+  doc
+    .font(FONT.bold)
+    .fontSize(9)
+    .fillColor(COLOR.accent)
+    .text(fmtDayHeader(date), contentLeft, y, {
+      lineBreak: false,
+      characterSpacing: 1.8,
+    });
+  doc
+    .moveTo(contentLeft, y + 18)
+    .lineTo(contentRight, y + 18)
+    .lineWidth(0.75)
+    .strokeColor(COLOR.ink)
+    .stroke();
+  return y + SECTION_HEADER;
+}
+
+function drawEventRow(
+  ctx: PageContext,
+  event: EventForPdf,
+  globalIndex: number,
+  y: number,
+  isLast: boolean
+): number {
+  const { doc, contentLeft, contentRight, contentWidth } = ctx;
+
+  const leftColW = 84;
+  const rightColW = 80;
+  const middleColX = contentLeft + leftColW + 8;
+  const middleColW = contentWidth - leftColW - rightColW - 16;
+  const rightColX = contentRight - rightColW;
+
+  // Left column: time + event index
+  doc
+    .font(FONT.bold)
+    .fontSize(16)
+    .fillColor(COLOR.ink)
+    .text(fmtTime(event.datetime), contentLeft, y, {
+      width: leftColW,
+      lineBreak: false,
+    });
+  doc
+    .font(FONT.regular)
+    .fontSize(8)
+    .fillColor(COLOR.muted)
+    .text(`EVENT ${String(globalIndex + 1).padStart(2, '0')}`, contentLeft, y + 24, {
+      width: leftColW,
+      lineBreak: false,
+      characterSpacing: 1.2,
+    });
+
+  // Middle column: name + location
+  doc
+    .font(FONT.bold)
+    .fontSize(14)
+    .fillColor(COLOR.ink)
+    .text(event.name, middleColX, y, {
+      width: middleColW,
+      lineBreak: false,
+      ellipsis: true,
+    });
+  doc
+    .font(FONT.regular)
+    .fontSize(10)
+    .fillColor(COLOR.muted)
+    .text(event.location, middleColX, y + 22, {
+      width: middleColW,
+      lineBreak: false,
+      ellipsis: true,
+    });
+
+  // Right column: number (large) + label below, both right-aligned
+  doc
+    .font(FONT.bold)
+    .fontSize(20)
+    .fillColor(COLOR.ink)
+    .text(fmtNumber(event.number), rightColX, y + 2, {
+      width: rightColW,
+      lineBreak: false,
+      align: 'right',
+    });
+  doc
+    .font(FONT.regular)
+    .fontSize(8)
+    .fillColor(COLOR.muted)
+    .text('NUMBER', rightColX, y + 28, {
+      width: rightColW,
+      lineBreak: false,
+      align: 'right',
+      characterSpacing: 1.2,
+    });
+
+  // Hairline under row (skip after the last row of a section/page)
+  if (!isLast) {
+    doc
+      .moveTo(contentLeft, y + ROW_HEIGHT)
+      .lineTo(contentRight, y + ROW_HEIGHT)
+      .lineWidth(0.5)
+      .strokeColor(COLOR.rule)
+      .stroke();
+  }
+
+  return y + ROW_HEIGHT + ROW_GAP;
+}
+
+function drawEmptyState(ctx: PageContext) {
+  const { doc, contentLeft, contentRight, contentTop, contentBottom } = ctx;
+  const centerY = (contentTop + contentBottom) / 2;
+  const centerX = (contentLeft + contentRight) / 2;
+  doc
+    .font(FONT.bold)
+    .fontSize(24)
+    .fillColor(COLOR.ink)
+    .text('Nothing scheduled.', contentLeft, centerY - 24, {
+      width: contentRight - contentLeft,
+      align: 'center',
+      lineBreak: false,
+    });
+  doc
+    .font(FONT.regular)
+    .fontSize(11)
+    .fillColor(COLOR.muted)
+    .text(
+      'Add an event in the app, then export this document again.',
+      contentLeft,
+      centerY + 8,
+      { width: contentRight - contentLeft, align: 'center', lineBreak: false }
+    );
+  // tiny accent mark
+  doc.rect(centerX - 12, centerY + 36, 24, 1.5).fillColor(COLOR.accent).fill();
 }
 
 export function buildEventsPdf({
   ownerEmail,
   ownerName,
   events,
+  range,
   sink,
 }: BuildOpts): Promise<void> {
   const doc = new PDFDocument({
     size: 'A4',
-    margins: { top: PAGE_MARGIN, bottom: PAGE_MARGIN, left: PAGE_MARGIN, right: PAGE_MARGIN },
+    margins: {
+      top: PAGE_MARGIN,
+      bottom: PAGE_MARGIN,
+      left: PAGE_MARGIN,
+      right: PAGE_MARGIN,
+    },
     bufferPages: true,
+    info: {
+      Title: 'Events',
+      Author: ownerName || ownerEmail,
+      Creator: 'Aperture',
+    },
   });
 
   const lifecycle = new Promise<void>((resolve, reject) => {
@@ -210,114 +463,88 @@ export function buildEventsPdf({
 
   doc.pipe(sink);
 
+  const ctx: PageContext = {
+    doc,
+    width: doc.page.width,
+    height: doc.page.height,
+    contentWidth: doc.page.width - PAGE_MARGIN * 2,
+    contentLeft: PAGE_MARGIN,
+    contentRight: doc.page.width - PAGE_MARGIN,
+    contentTop: PAGE_MARGIN + HEADER_BAND,
+    contentBottom: doc.page.height - PAGE_MARGIN - FOOTER_BAND,
+    ownerEmail,
+  };
+
   try {
-  const pageWidth = doc.page.width;
-  const pageHeight = doc.page.height;
-  const contentWidth = pageWidth - PAGE_MARGIN * 2;
+    // Sort defensively, then group
+    const sorted = [...events].sort((a, b) => a.datetime.getTime() - b.datetime.getTime());
 
-  // Available height for cards on the first page (after title block)
-  const firstPageCardArea =
-    pageHeight - PAGE_MARGIN * 2 - TITLE_BLOCK_HEIGHT - FOOTER_HEIGHT;
-  // Available height for cards on subsequent pages (no title, just continuation header)
-  const continuationHeader = 40;
-  const nextPageCardArea =
-    pageHeight - PAGE_MARGIN * 2 - continuationHeader - FOOTER_HEIGHT;
+    // --- Cover page ---
+    drawCover(ctx, { ownerName, events: sorted, range });
 
-  const cardsFirstPage = Math.max(
-    1,
-    Math.floor((firstPageCardArea + CARD_GAP) / (CARD_HEIGHT + CARD_GAP))
-  );
-  const cardsNextPage = Math.max(
-    1,
-    Math.floor((nextPageCardArea + CARD_GAP) / (CARD_HEIGHT + CARD_GAP))
-  );
-
-  const chunks: EventForPdf[][] = [];
-  if (events.length === 0) {
-    chunks.push([]);
-  } else {
-    chunks.push(events.slice(0, cardsFirstPage));
-    let i = cardsFirstPage;
-    while (i < events.length) {
-      chunks.push(events.slice(i, i + cardsNextPage));
-      i += cardsNextPage;
-    }
-  }
-
-  const subtitle = ownerName
-    ? `${events.length} event${events.length === 1 ? '' : 's'} • ${ownerName} (${ownerEmail})`
-    : `${events.length} event${events.length === 1 ? '' : 's'} • ${ownerEmail}`;
-
-  let globalIndex = 0;
-  chunks.forEach((chunk, pageIdx) => {
-    if (pageIdx > 0) doc.addPage();
-
-    let cursorY: number;
-    if (pageIdx === 0) {
-      drawTitleBlock(doc, {
-        title: 'Events',
-        subtitle,
-        x: PAGE_MARGIN,
-        y: PAGE_MARGIN,
-        width: contentWidth,
-      });
-      cursorY = PAGE_MARGIN + TITLE_BLOCK_HEIGHT;
+    if (sorted.length === 0) {
+      // single page: empty state lives on its own page after the cover
+      doc.addPage();
+      const eyebrow = `EVENTS · ${ownerEmail.toUpperCase()}`;
+      drawTopBand(ctx, eyebrow);
+      drawEmptyState(ctx);
     } else {
-      doc
-        .font('Helvetica')
-        .fontSize(10)
-        .fillColor(COLOR.blue300)
-        .text(`Events (continued) • ${ownerEmail}`, PAGE_MARGIN, PAGE_MARGIN, {
-          width: contentWidth,
-          lineBreak: false,
-        });
-      doc
-        .moveTo(PAGE_MARGIN, PAGE_MARGIN + 20)
-        .lineTo(PAGE_MARGIN + contentWidth, PAGE_MARGIN + 20)
-        .lineWidth(1)
-        .strokeColor(COLOR.blue200)
-        .stroke();
-      cursorY = PAGE_MARGIN + continuationHeader;
-    }
+      const sections = groupByDay(sorted);
+      const eyebrow = `EVENTS · ${ownerEmail.toUpperCase()}`;
 
-    if (chunk.length === 0) {
-      doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor(COLOR.blue300)
-        .text('No events yet.', PAGE_MARGIN, cursorY + 24, {
-          width: contentWidth,
-          align: 'center',
+      doc.addPage();
+      drawTopBand(ctx, eyebrow);
+      let y = ctx.contentTop + 24;
+
+      let globalIndex = 0;
+      sections.forEach((section, sIdx) => {
+        // ensure section header + at least one row fits
+        const minNeeded = SECTION_HEADER + ROW_HEIGHT;
+        if (y + minNeeded > ctx.contentBottom) {
+          doc.addPage();
+          drawTopBand(ctx, eyebrow);
+          y = ctx.contentTop + 24;
+        } else if (sIdx > 0) {
+          y += 16; // breathing room between sections
+        }
+
+        y = drawSectionHeader(ctx, section.date, y);
+
+        section.events.forEach((event, eIdx) => {
+          // ensure row fits
+          if (y + ROW_HEIGHT > ctx.contentBottom) {
+            doc.addPage();
+            drawTopBand(ctx, eyebrow);
+            y = ctx.contentTop + 24;
+            // repeat section header on continuation
+            y = drawSectionHeader(ctx, section.date, y);
+          }
+          const isLastInSection = eIdx === section.events.length - 1;
+          y = drawEventRow(ctx, event, globalIndex, y, isLastInSection);
+          globalIndex += 1;
         });
-    } else {
-      chunk.forEach((event) => {
-        drawCard(doc, event, globalIndex, {
-          x: PAGE_MARGIN,
-          y: cursorY,
-          width: contentWidth,
-          height: CARD_HEIGHT,
-        });
-        cursorY += CARD_HEIGHT + CARD_GAP;
-        globalIndex += 1;
       });
     }
-  });
 
-  // Second pass: page X of Y footer
-  const range = doc.bufferedPageRange();
-  const total = range.count;
-  for (let i = 0; i < total; i++) {
-    doc.switchToPage(range.start + i);
-    drawFooter(doc, i + 1, total, ownerEmail);
-  }
+    // --- Footer pass ---
+    const pageRange = doc.bufferedPageRange();
+    const total = pageRange.count;
+    for (let i = 0; i < total; i++) {
+      doc.switchToPage(pageRange.start + i);
+      if (i === 0) {
+        // cover has its own bottom band drawn already
+        continue;
+      }
+      drawBottomBand(ctx, i, total - 1);
+    }
 
-  doc.end();
+    doc.end();
   } catch (err) {
     doc.emit('error', err instanceof Error ? err : new Error(String(err)));
     try {
       doc.end();
     } catch {
-      // ignore — error already propagated through doc 'error' event
+      // already finalised
     }
   }
   return lifecycle;

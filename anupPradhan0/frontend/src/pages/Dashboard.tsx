@@ -7,12 +7,14 @@ import {
   EventInput,
   EventItem,
   listEvents,
+  PdfRange,
 } from '../lib/api';
 import { AppShell } from '../components/AppShell';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { EventForm } from '../components/EventForm';
 import { EventList } from '../components/EventList';
+import { DownloadRangeForm } from '../components/DownloadRangeForm';
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   return (
@@ -26,6 +28,8 @@ export default function Dashboard() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const eventsQuery = useQuery<EventItem[]>({
     queryKey: ['events'],
@@ -60,10 +64,16 @@ export default function Dashboard() {
   });
 
   const downloadMutation = useMutation({
-    mutationFn: downloadEventsPdf,
-    onMutate: () => setPageError(null),
+    mutationFn: (range: PdfRange) => downloadEventsPdf(range),
+    onMutate: () => {
+      setPageError(null);
+      setDownloadError(null);
+    },
+    onSuccess: () => {
+      setDownloadOpen(false);
+    },
     onError: (err) => {
-      setPageError(apiErrorMessage(err, 'Could not download PDF'));
+      setDownloadError(apiErrorMessage(err, 'Could not download PDF'));
     },
   });
 
@@ -82,10 +92,13 @@ export default function Dashboard() {
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               variant="secondary"
-              onClick={() => downloadMutation.mutate()}
-              disabled={downloadMutation.isPending || events.length === 0}
+              onClick={() => {
+                setDownloadError(null);
+                setDownloadOpen(true);
+              }}
+              disabled={events.length === 0}
             >
-              {downloadMutation.isPending ? 'Preparing…' : 'Download PDF'}
+              Download PDF
             </Button>
             <Button
               onClick={() => {
@@ -133,6 +146,19 @@ export default function Dashboard() {
           onCancel={() => setModalOpen(false)}
           submitting={createMutation.isPending}
           error={formError}
+        />
+      </Modal>
+
+      <Modal
+        open={downloadOpen}
+        onClose={() => setDownloadOpen(false)}
+        title="Download events PDF"
+      >
+        <DownloadRangeForm
+          onSubmit={(range) => downloadMutation.mutate(range)}
+          onCancel={() => setDownloadOpen(false)}
+          submitting={downloadMutation.isPending}
+          error={downloadError}
         />
       </Modal>
     </AppShell>
